@@ -1,0 +1,98 @@
+public class XmlConfigManager
+    {
+        private readonly string _xmlPath;
+
+        public XmlConfigManager()
+        {
+            // XML file path in application directory
+            _xmlPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Config.xml");
+
+            // Create XML with defaults if missing
+            if (!File.Exists(_xmlPath))
+            {
+                CreateDefaultXml();
+            }
+        }
+
+        // ----------------------------------------------------
+        //  Create Default XML File
+        // ----------------------------------------------------
+        private void CreateDefaultXml()
+        {
+            XElement root = new XElement("Root",
+                new XElement("EBSA",
+                    new XElement("EBSA_Child1", new XElement("Path", @"C:\EBSA\Child1")),
+                    new XElement("EBSA_Child2", new XElement("Path", @"C:\EBSA\Child2"))
+                ),
+                new XElement("EBSO",
+                    new XElement("EBSO_Child1", new XElement("Path", @"C:\EBSO\Child1")),
+                    new XElement("EBSO_Child2", new XElement("Path", @"C:\EBSO\Child2"))
+                )
+            );
+
+            root.Save(_xmlPath);
+        }
+
+        // ----------------------------------------------------
+        //  Read Specific Child Path
+        // ----------------------------------------------------
+        public string? GetPath(string parentNode, string childNode)
+        {
+            try
+            {
+                XDocument doc = XDocument.Load(_xmlPath);
+                var pathElement = doc.Root?
+                    .Element(parentNode)?
+                    .Element(childNode)?
+                    .Element("Path");
+
+                return pathElement?.Value;
+            }
+            catch (Exception ex)
+            {
+                System.Windows.Forms.MessageBox.Show($"Error reading XML: {ex.Message}",
+                    "XML Error", System.Windows.Forms.MessageBoxButtons.OK,
+                    System.Windows.Forms.MessageBoxIcon.Error);
+                return null;
+            }
+        }
+
+        // ----------------------------------------------------
+        //  Update Path and Save
+        // ----------------------------------------------------
+        public void UpdatePath(string parentNode, string childNode, string newPath)
+        {
+            try
+            {
+                XDocument doc = XDocument.Load(_xmlPath);
+
+                var pathElement = doc.Root?
+                    .Element(parentNode)?
+                    .Element(childNode)?
+                    .Element("Path");
+
+                if (pathElement != null)
+                {
+                    pathElement.Value = newPath;
+                    doc.Save(_xmlPath);
+                }
+                else
+                {
+                    System.Windows.Forms.MessageBox.Show("Specified path not found in XML.",
+                        "Update Failed", System.Windows.Forms.MessageBoxButtons.OK,
+                        System.Windows.Forms.MessageBoxIcon.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Windows.Forms.MessageBox.Show($"Error updating XML: {ex.Message}",
+                    "XML Error", System.Windows.Forms.MessageBoxButtons.OK,
+                    System.Windows.Forms.MessageBoxIcon.Error);
+            }
+        }
+
+        // ----------------------------------------------------
+        //  Get XML File Path
+        // ----------------------------------------------------
+        public string GetXmlFilePath() => _xmlPath;
+    }
