@@ -1,0 +1,211 @@
+#nullable enable
+using System;
+using System.Data;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+using Dapper;
+using Oracle.ManagedDataAccess.Client;
+
+namespace YourNamespace.Data
+{
+    /// <summary>
+    /// Thin Dapper wrapper for Oracle with consistent logging and cancellation support.
+    /// </summary>
+    public sealed class DapperDataAccess
+    {
+        private readonly IConnectService _connect;
+        private readonly ILogSystem _log;
+
+        public DapperDataAccess(IConnectService connect, ILogSystem log)
+        {
+            _connect = connect ?? throw new ArgumentNullException(nameof(connect));
+            _log = log ?? throw new ArgumentNullException(nameof(log));
+        }
+
+        /// <summary>
+        /// Executes a query that returns multiple rows.
+        /// </summary>
+        public async Task<IReadOnlyList<T>> QueryAsync<T>(
+            string sql,
+            object? param = null,
+            int? commandTimeout = null,
+            CommandType? commandType = null,
+            CancellationToken ct = default)
+        {
+            ArgumentNullException.ThrowIfNull(sql);
+
+            await using var conn = CreateConnection();
+            await conn.OpenAsync(ct).ConfigureAwait(false);
+
+            try
+            {
+                // Note: buffered:true (default) returns List<T>
+                var rows = await conn.QueryAsync<T>(
+                    sql,
+                    param,
+                    transaction: null,
+                    commandTimeout: commandTimeout,
+                    commandType: commandType,
+                    cancellationToken: ct
+                ).ConfigureAwait(false);
+
+                var list = rows.AsList();
+                _log.Info($"Query OK ({list.Count} rows)");
+                return list;
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"Query failed: {ex.Message}", ex);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Executes a query that returns a single row or the default value if none exist.
+        /// </summary>
+        public async Task<T?> QuerySingleOrDefaultAsync<T>(
+            string sql,
+            object? param = null,
+            int? commandTimeout = null,
+            CommandType? commandType = null,
+            CancellationToken ct = default)
+        {
+            ArgumentNullException.ThrowIfNull(sql);
+
+            await using var conn = CreateConnection();
+            await conn.OpenAsync(ct).ConfigureAwait(false);
+
+            try
+            {
+                var result = await conn.QuerySingleOrDefaultAsync<T>(
+                    sql,
+                    param,
+                    transaction: null,
+                    commandTimeout: commandTimeout,
+                    commandType: commandType,
+                    cancellationToken: ct
+                ).ConfigureAwait(false);
+
+                _log.Info(result is null ? "QuerySingleOrDefault OK (no rows)" : "QuerySingleOrDefault OK (1 row)");
+                return result;
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Thrown if more than one row is returned
+                _log.Error($"QuerySingleOrDefault returned more than one row: {ex.Message}", ex);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"QuerySingleOrDefault failed: {ex.Message}", ex);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Executes a command that does not return rows (INSERT/UPDATE/DELETE).
+        /// Returns the number of affected rows.
+        /// </summary>
+        public async Task<int> ExecuteAsync(
+            string sql,
+            object? param = null,
+            int? commandTimeout = null,
+            CommandType? commandType = null,
+            CancellationToken ct = default)
+        {
+            ArgumentNullException.ThrowIfNull(sql);
+
+            await using var conn = CreateConnection();
+            await conn.OpenAsync(ct).ConfigureAwait(false);
+
+            try
+            {
+                var affected = await conn.ExecuteAsync(
+                    sql,
+                    param,
+                    transaction: null,
+                    commandTimeout: commandTimeout,
+                    commandType: commandType,
+                    cancellationToken: ct
+                ).ConfigureAwait(false);
+
+                _log.Info($"Execute OK ({affected} rows affected)");
+                return affected;
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"Execute failed: {ex.Message}", ex);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Executes a scalar command and returns the first column of the first row.
+        /// </summary>
+        public async Task<T?> ExecuteScalarAsync<T>(
+            string sql,
+            object? param = null,
+            int? commandTimeout = null,
+            CommandType? commandType = null,
+            CancellationToken ct = default)
+        {
+            ArgumentNullException.ThrowIfNull(sql);
+
+            await using var conn = CreateConnection();
+            await conn.OpenAsync(ct).ConfigureAwait(false);
+
+            try
+            {
+                var result = await conn.ExecuteScalarAsync<T>(
+                    sql,
+                    param,
+                    commandTimeout: commandTimeout,
+                    commandType: commandType
+                ).ConfigureAwait(false); // Dapper's ExecuteScalarAsync<T> has no ct param currently
+
+                _log.Info("ExecuteScalar OK");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"ExecuteScalar failed: {ex.Message}", ex);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Executes a function inside a database transaction (commit/rollback handled here).
+        /// </summary>
+        public async Task<TResult> WithTransactionAsync<TResult>(
+            Func<IDbConnection, IDbTransaction, CancellationToken, Task<TResult>> action,
+            IsolationLevel isolation = IsolationLevel.ReadCommitted,
+            CancellationToken ct = default)
+        {
+            ArgumentNullException.ThrowIfNull(action);
+
+            await using var conn = CreateConnection();
+            await conn.OpenAsync(ct).ConfigureAwait(false);
+
+            using var tx = conn.BeginTransaction(isolation);
+            try
+            {
+                var result = await action(conn, tx, ct).ConfigureAwait(false);
+                tx.Commit();
+                _log.Info("Transaction committed");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                try { tx.Rollback(); _log.Warning("Transaction rolled back"); }
+                catch (Exception rbEx) { _log.Error($"Rollback failed: {rbEx.Message}", rbEx); }
+
+                _log.Error($"Transaction failed: {ex.Message}", ex);
+                throw;
+            }
+        }
+
+        private OracleConnection CreateConnection()
+            => new OracleConnection(_connect.BuildConnectionString());
+    }
+}
