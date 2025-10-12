@@ -1,0 +1,55 @@
+// ==========================================
+// 6) CHECK CRONTAB (whether it exists or not)
+// ==========================================
+public CrontabResult CheckCrontabExists()
+{
+    try
+    {
+        _logSystem.Info($"CheckCrontabExists start: sudoUser={_sudoUser}");
+
+        // Use the clean sudo wrapper to avoid profile banners
+        var cmdText = BuildSudoCmd("crontab -l");
+        using var ssh = CreateSsh(_auth);
+        ssh.Connect();
+        var cmd = ssh.CreateCommand(cmdText);
+        var output = cmd.Execute();
+        var exit = cmd.ExitStatus;
+        var err = cmd.Error?.Trim() ?? "";
+        ssh.Disconnect();
+
+        // If exit == 0 → crontab exists
+        if (exit == 0)
+        {
+            var lines = output
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Where(l => !l.TrimStart().StartsWith("#"))
+                .Select(l => l.Trim())
+                .ToList();
+
+            _logSystem.Info($"Crontab found for {_sudoUser}: {lines.Count} entries");
+            return new CrontabResult
+            {
+                Exists = true,
+                Entries = lines,
+                RawOutput = output
+            };
+        }
+
+        // If output or stderr contains "no crontab for", it's fine (no cron)
+        if (err.Contains("no crontab for", StringComparison.OrdinalIgnoreCase)
+            || output.Contains("no crontab for", StringComparison.OrdinalIgnoreCase))
+        {
+            _logSystem.Warning($"No crontab for {_sudoUser}");
+            return new CrontabResult { Exists = false, RawOutput = err + output };
+        }
+
+        // Other non-zero exits = unexpected error
+        _logSystem.Error($"CheckCrontabExists failed (exit {exit}): {err}");
+        throw new Exception($"Unexpected error while checking crontab: {err}");
+    }
+    catch (Exception ex)
+    {
+        _logSystem.Error($"CheckCrontabExists error: {ex.Message}");
+        throw;
+    }
+}
