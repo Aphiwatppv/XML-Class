@@ -1,0 +1,94 @@
+SqlScript = 
+SELECT * 
+FROM (
+    SELECT 
+        meas.meas_lot_id AS Lot_ID,                                        
+        COUNT(DISTINCT tu.wafernumber) AS Wafer_Count,                     
+        MAX(measallw.measstp_name || meas.sub_meas_step) AS current_test_mode, 
+        MAX(meas.meascat_name),-- Latest Step + Sub_Step
+        MAX(meas.timestamp_loading) AS Latest_Loading_Time                
+    FROM 
+        measurements meas
+    INNER JOIN 
+        measurements_allowed measallw ON meas.measallw_id = measallw.id
+    INNER JOIN 
+        tracking_units tu ON tu.ID = meas.tunit_id
+    WHERE 
+        meas.test_type IS NOT NULL                                        
+    GROUP BY 
+        meas.meas_lot_id                                                  
+    ORDER BY 
+        Latest_Loading_Time DESC                                           
+) 
+WHERE ROWNUM <= 60
+
+
+// LotAttribute
+SELECT 
+    TUNIT_ID,	FACILITY,	LOT,	ATTR_NAME,	ATTR_NUMBER,	ATTR_VALUE,	ATTR_TYPE,	CREATE_DATE,	TU_MLOT_CREATE_DATE
+FROM 
+    ebs_ana.dwh_lot_attr
+WHERE 
+    LOT = '{lot_id}'
+
+// GLP Data
+
+SELECT
+    tu.id, tu.lot_id, tvpk.vprodkey_dwh_product_colname, vpk.dwh_product_colname_value, tvpk.timestamp_loading, tvpk.data_provider
+FROM
+    tunit_vprodkey tvpk
+    , virtual_product_keys vpk
+    , tracking_units tu
+WHERE 
+    vpk.id = tvpk.vprodkey_id
+    AND tvpk.tunit_id = tu.id
+    AND tu.lot_id = '{lot_id}'
+
+
+//Loader
+
+    SELECT 
+        meas.meas_lot_id AS Lot_ID,
+        tu.motherlot_id AS Mother_lot,
+        tu.wafernumber,
+        measallw.measstp_name AS Step,
+        meas.sub_meas_step AS Sub_Step,
+        meas.test_type,
+        meas.meascat_name,
+        meas.timestamp_begin,
+        meas.timestamp_end,
+        meas.timestamp_loading,
+        meas.component_seq,
+        meas.meas_counter,
+        meas.chip_data_attached,
+        meas.visible,
+        meas.id AS Meas_ID,
+        measallw.id AS Meas_Allowed
+    FROM 
+        measurements meas
+    INNER JOIN 
+        measurements_allowed measallw ON meas.measallw_id = measallw.id
+    INNER JOIN 
+        tracking_units tu ON tu.ID = meas.tunit_id
+    WHERE 
+        meas.meas_lot_id = :lot_id
+    ORDER BY 
+        meas.timestamp_loading DESC
+
+
+        SELECT
+            tp.name AS tp_name,
+            tp.revision AS tp_rev,
+            ma.measstp_name AS meas_step,
+            ma.measds_name AS meas_ds,
+            tp.tdf_status,
+            tp.visible_flag AS tp_visible,
+            tp.tdf_user,
+            tp.create_date,
+            tp.id AS tp_id
+        FROM testprograms tp
+        JOIN measurements_allowed ma
+          ON ma.id = tp.measallw_id
+        WHERE {clause_names}
+          AND {clause_revs}
+{step_clause}        ORDER BY tp.name, tp.revision
