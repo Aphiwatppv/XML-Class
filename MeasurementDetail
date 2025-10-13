@@ -1,0 +1,108 @@
+namespace ServerConnection.Repositories
+{
+    public sealed class MeasurementDetail
+    {
+        public string LOT_ID { get; init; } = "";
+        public string MOTHER_LOT { get; init; } = "";
+        public string WAFERNUMBER { get; init; } = "";
+        public string STEP { get; init; } = "";
+        public string SUB_STEP { get; init; } = "";
+        public string TEST_TYPE { get; init; } = "";
+        public string MEASCAT_NAME { get; init; } = "";
+        public DateTime? TIMESTAMP_BEGIN { get; init; }
+        public DateTime? TIMESTAMP_END { get; init; }
+        public DateTime? TIMESTAMP_LOADING { get; init; }
+        public int? COMPONENT_SEQ { get; init; }
+        public int? MEAS_COUNTER { get; init; }
+        public int? CHIP_DATA_ATTACHED { get; init; }
+        public int? VISIBLE { get; init; }
+        public long MEAS_ID { get; init; }
+        public long MEAS_ALLOWED { get; init; }
+        public double? PROCESS_SECONDS { get; init; }  // derived: (end-begin)*86400
+    }
+
+    public partial class MeasurementServiceRepo
+    {
+        /// <summary>
+        /// Returns detailed measurement rows for a lot, newest loading time first.
+        /// Optional filters (waferNumber, motherLot, testType) and optional topN cap.
+        /// </summary>
+        public async Task<IReadOnlyList<MeasurementDetail>> GetMeasurementsByLotAsync(
+            string lotId,
+            string? waferNumber = null,
+            string? motherLot = null,
+            string? testType = null,
+            int? topN = null,
+            CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(lotId))
+                throw new ArgumentException("lotId is required.", nameof(lotId));
+
+            const string sql = @"
+SELECT
+    lot_id,
+    mother_lot,
+    wafernumber,
+    step,
+    sub_step,
+    test_type,
+    meascat_name,
+    timestamp_begin,
+    timestamp_end,
+    timestamp_loading,
+    component_seq,
+    meas_counter,
+    chip_data_attached,
+    visible,
+    meas_id,
+    meas_allowed,
+    process_seconds
+FROM (
+    SELECT
+        meas.meas_lot_id AS lot_id,
+        tu.motherlot_id  AS mother_lot,
+        tu.wafernumber,
+        measallw.measstp_name AS step,
+        meas.sub_meas_step    AS sub_step,
+        meas.test_type,
+        meas.meascat_name,
+        meas.timestamp_begin,
+        meas.timestamp_end,
+        meas.timestamp_loading,
+        meas.component_seq,
+        meas.meas_counter,
+        meas.chip_data_attached,
+        meas.visible,
+        meas.id           AS meas_id,
+        measallw.id       AS meas_allowed,
+        /* (end - begin) is days; multiply to get seconds */
+        ( (CAST(meas.timestamp_end   AS DATE) - CAST(meas.timestamp_begin AS DATE)) * 86400 ) AS process_seconds,
+        ROW_NUMBER() OVER (ORDER BY meas.timestamp_loading DESC) AS rn
+    FROM measurements           meas
+    JOIN measurements_allowed   measallw ON meas.measallw_id = measallw.id
+    JOIN tracking_units         tu       ON tu.id = meas.tunit_id
+    WHERE
+        meas.meas_lot_id = :lot_id
+        AND (:wafernumber IS NULL OR tu.wafernumber = :wafernumber)
+        AND (:mother_lot  IS NULL OR tu.motherlot_id = :mother_lot)
+        AND (:test_type   IS NULL OR meas.test_type   = :test_type)
+)
+WHERE (:top_n IS NULL OR rn <= :top_n)
+ORDER BY timestamp_loading DESC";
+
+            _log.Info($"[MEAS] Detail rows for lot={lotId}, wafer={waferNumber ?? "-"}, mother={motherLot ?? "-"}, testType={testType ?? "-"}, topN={(topN?.ToString() ?? "-")}");
+
+            var param = new
+            {
+                lot_id = lotId,
+                wafernumber = waferNumber,
+                mother_lot = motherLot,
+                test_type = testType,
+                top_n = topN
+            };
+
+            return await _db.QueryAsync<MeasurementDetail>(
+                sql, param, commandType: CommandType.Text, ct: ct);
+        }
+    }
+}
