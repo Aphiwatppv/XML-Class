@@ -1,0 +1,156 @@
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Threading;
+using System.Threading.Tasks;
+using ServerConnection.Services; // For IDapperDataAccess
+// Assuming ILogSystem is the same type you use in DapperDataAccess
+using LogSystem;
+
+namespace ServerConnection.Repositories
+{
+    // =========================
+    //  CONTRACTS / MODELS
+    // =========================
+    public interface IStdfServiceRepo
+    {
+        Task<IReadOnlyList<StdfGroupedResult>> GetGroupedByLotAsync(
+            string lotId,
+            CancellationToken ct = default);
+
+        Task<IReadOnlyList<StdfDetailRow>> GetDetailsByLotAsync(
+            string lotId,
+            CancellationToken ct = default);
+    }
+
+    public sealed class StdfGroupedResult
+    {
+        public string PRODUCT_TYPE { get; init; } = "";
+        public string TEST_PROG_NAME { get; init; } = "";
+        public string TEST_PROG_REVISION { get; init; } = "";
+        public string MEASSTP_NAME { get; init; } = "";
+        public string LOT_NUMBER { get; init; } = "";
+        public string TESTER_NAME { get; init; } = "";
+
+        public DateTime? FIRST_REQUEST_DATE { get; init; }   // MIN(REQUEST_DATE)
+        public DateTime? LAST_REPLY_DATE { get; init; }      // MAX(REPLY_DATE)
+        public int TOTAL_WAFER { get; init; }                // COUNT(DISTINCT STDF_FILE_NAME)
+    }
+
+    public sealed class StdfDetailRow
+    {
+        public long ID { get; init; }
+        public string CONFIG_OBJECTIVE { get; init; } = "";
+        public string PRODUCT_TYPE { get; init; } = "";
+        public string TEST_PROG_NAME { get; init; } = "";
+        public string TEST_PROG_REVISION { get; init; } = "";
+        public string MEASSTP_NAME { get; init; } = "";
+        public string LOT_NUMBER { get; init; } = "";
+        public string TESTER_NAME { get; init; } = "";
+        public string STDF_FILE_NAME { get; init; } = "";
+        public string CONFIG_STATUS { get; init; } = "";
+        public string CONFIG_ID { get; init; } = "";
+        public DateTime? REQUEST_DATE { get; init; }
+        public DateTime? REPLY_DATE { get; init; }
+    }
+
+    // =========================
+    //  REPOSITORY IMPLEMENTATION
+    // =========================
+    public sealed class StdfServiceRepo : IStdfServiceRepo
+    {
+        private readonly IDapperDataAccess _db;
+        private readonly ILogSystem _log;
+
+        public StdfServiceRepo(IDapperDataAccess db, ILogSystem log)
+        {
+            _db = db ?? throw new ArgumentNullException(nameof(db));
+            _log = log ?? throw new ArgumentNullException(nameof(log));
+        }
+
+        // -------------------------
+        // Grouped query (your spec)
+        // -------------------------
+        public async Task<IReadOnlyList<StdfGroupedResult>> GetGroupedByLotAsync(
+            string lotId,
+            CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(lotId))
+                throw new ArgumentException("lotId is required.", nameof(lotId));
+
+            const string sql = @"
+SELECT
+    PRODUCT_TYPE,
+    TEST_PROG_NAME,
+    TEST_PROG_REVISION,
+    MEASSTP_NAME,
+    LOT_NUMBER,
+    TESTER_NAME,
+    MIN(REQUEST_DATE) AS FIRST_REQUEST_DATE,
+    MAX(REPLY_DATE)   AS LAST_REPLY_DATE,
+    COUNT(DISTINCT STDF_FILE_NAME) AS TOTAL_WAFER
+FROM
+    DLSM_STDF
+WHERE
+    LOT_NUMBER = :lot_id
+GROUP BY
+    PRODUCT_TYPE,
+    TEST_PROG_NAME,
+    TEST_PROG_REVISION,
+    MEASSTP_NAME,
+    LOT_NUMBER,
+    TESTER_NAME
+ORDER BY
+    FIRST_REQUEST_DATE DESC";
+
+            var param = new { lot_id = lotId }; // Dapper + Oracle: no colon here
+            _log.Info($"[STDF] Group query for LOT_NUMBER={lotId}");
+            return await _db.QueryAsync<StdfGroupedResult>(
+                sql,
+                param,
+                commandType: CommandType.Text,
+                ct: ct);
+        }
+
+        // -----------------------------------------
+        // Detail rows (simple list, newest first)
+        // -----------------------------------------
+        public async Task<IReadOnlyList<StdfDetailRow>> GetDetailsByLotAsync(
+            string lotId,
+            CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(lotId))
+                throw new ArgumentException("lotId is required.", nameof(lotId));
+
+            const string sql = @"
+SELECT
+    ID,
+    CONFIG_OBJECTIVE,
+    PRODUCT_TYPE,
+    TEST_PROG_NAME,
+    TEST_PROG_REVISION,
+    MEASSTP_NAME,
+    LOT_NUMBER,
+    TESTER_NAME,
+    STDF_FILE_NAME,
+    CONFIG_STATUS,
+    CONFIG_ID,
+    REQUEST_DATE,
+    REPLY_DATE
+FROM
+    DLSM_STDF
+WHERE
+    LOT_NUMBER = :lot_id
+ORDER BY
+    REQUEST_DATE DESC";
+
+            var param = new { lot_id = lotId };
+            _log.Info($"[STDF] Detail query for LOT_NUMBER={lotId}");
+            return await _db.QueryAsync<StdfDetailRow>(
+                sql,
+                param,
+                commandType: CommandType.Text,
+                ct: ct);
+        }
+    }
+}
