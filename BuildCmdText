@@ -1,0 +1,95 @@
+private string BuildCmdText(Dictionary<string, ProcessResult> results)
+{
+    var sb = new StringBuilder();
+
+    foreach (var kvp in results)
+    {
+        string processName = kvp.Key;
+        var result = kvp.Value;
+
+        sb.AppendLine($">>> {processName}");
+        sb.AppendLine($"Exists: {result.Exists}");
+        sb.AppendLine("Entries:");
+
+        if (result.Entries.Any())
+        {
+            foreach (var entry in result.Entries)
+                sb.AppendLine($"    {entry}");
+        }
+        else
+        {
+            sb.AppendLine("    (no entries)");
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.RawOutput))
+        {
+            sb.AppendLine("Raw Output:");
+            sb.AppendLine($"    {result.RawOutput}");
+        }
+
+        sb.AppendLine(new string('-', 50)); // divider line
+    }
+
+    return sb.ToString();
+}
+private void DisplayResults(Dictionary<string, ProcessResult> results)
+{
+    textBoxCmd.Multiline = true;
+    textBoxCmd.ScrollBars = ScrollBars.Vertical;
+    textBoxCmd.ReadOnly = true;
+    textBoxCmd.BackColor = Color.Black;
+    textBoxCmd.ForeColor = Color.Lime;
+    textBoxCmd.Font = new Font("Consolas", 10, FontStyle.Regular);
+
+    textBoxCmd.Text = BuildCmdText(results);
+}
+
+private void DisplayResults(Dictionary<string, ProcessResult> results, RichTextBox txtCmd)
+{
+    // Basic styling
+    txtCmd.ReadOnly = true;
+    txtCmd.BackColor = Color.Black;
+    txtCmd.ForeColor = Color.Lime;
+    txtCmd.Font = new Font("Consolas", 10, FontStyle.Regular);
+    txtCmd.Clear();
+
+    foreach (var kvp in results)
+    {
+        string processName = kvp.Key;
+        var result = kvp.Value;
+
+        AppendLine(txtCmd, $">>> {processName}", Color.Cyan);
+        AppendLine(txtCmd, $"Exists: {result.Exists}", result.Exists ? Color.Lime : Color.Red);
+
+        AppendLine(txtCmd, "Entries:", Color.Lime);
+        if (result.Entries.Any())
+        {
+            foreach (var entry in result.Entries)
+                AppendLine(txtCmd, $"    {entry}", Color.White);
+        }
+        else
+        {
+            AppendLine(txtCmd, "    (no entries)", Color.DarkGray);
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.RawOutput))
+        {
+            AppendLine(txtCmd, "Raw Output:", Color.Yellow);
+            AppendLine(txtCmd, $"    {result.RawOutput}", Color.LightGray);
+        }
+
+        AppendLine(txtCmd, new string('-', 50), Color.DarkGray);
+    }
+
+    // Scroll to bottom
+    txtCmd.SelectionStart = txtCmd.Text.Length;
+    txtCmd.ScrollToCaret();
+}
+private void AppendLine(RichTextBox box, string text, Color color)
+{
+    box.SelectionStart = box.TextLength;
+    box.SelectionLength = 0;
+    box.SelectionColor = color;
+    box.AppendText(text + Environment.NewLine);
+    box.SelectionColor = box.ForeColor;
+}
