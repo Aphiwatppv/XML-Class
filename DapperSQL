@@ -1,0 +1,91 @@
+namespace ServerConnection.Services
+{
+    /// <summary>
+    /// Thin Dapper wrapper for Oracle with consistent logging and cancellation support.
+    /// </summary>
+    public sealed class DapperDataAccess : IDapperDataAccess
+    {
+        private readonly IConnectService _connect;
+        private readonly ILogSystem _log;
+
+        public DapperDataAccess(IConnectService connect, ILogSystem log)
+        {
+            _connect = connect ?? throw new ArgumentNullException(nameof(connect));
+            _log = log ?? throw new ArgumentNullException(nameof(log));
+        }
+
+        /// <summary>
+        /// Executes a query that returns multiple rows.
+        /// </summary>
+        public async Task<IReadOnlyList<T>> QueryAsync<T>(
+            string sql,
+            object? param = null,
+            int? commandTimeout = null,
+            CommandType? commandType = null,
+            CancellationToken ct = default)
+        {
+            ArgumentNullException.ThrowIfNull(sql);
+
+            await using var conn = CreateConnection();
+            await conn.OpenAsync(ct).ConfigureAwait(false);
+
+            try
+            {
+                var def = new CommandDefinition(sql, param, commandType: commandType, commandTimeout: commandTimeout, cancellationToken: ct);
+                var rows = await conn.QueryAsync<T>(def).ConfigureAwait(false);
+
+                var list = rows.AsList();
+                _log.Info($"Query OK ({list.Count} rows)");
+                return (IReadOnlyList<T>)list;
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"Query failed: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Executes a query that returns a single row or the default value if none exist.
+        /// </summary>
+        public async Task<T?> QuerySingleOrDefaultAsync<T>(
+            string sql,
+            object? param = null,
+            int? commandTimeout = null,
+            CommandType? commandType = null,
+            CancellationToken ct = default)
+        {
+            ArgumentNullException.ThrowIfNull(sql);
+
+            await using var conn = CreateConnection();
+            await conn.OpenAsync(ct).ConfigureAwait(false);
+
+            try
+            {
+
+                var def = new CommandDefinition(sql, param, commandType: commandType, commandTimeout: commandTimeout, cancellationToken: ct);
+                var result = await conn.QuerySingleOrDefaultAsync<T>(def).ConfigureAwait(false);
+
+
+
+
+                _log.Info(result is null ? "QuerySingleOrDefault OK (no rows)" : "QuerySingleOrDefault OK (1 row)");
+                return result;
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Thrown if more than one row is returned
+                _log.Error($"QuerySingleOrDefault returned more than one row: {ex.Message}");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"QuerySingleOrDefault failed: {ex.Message}");
+                throw;
+            }
+        }
+
+        private OracleConnection CreateConnection()
+            => new OracleConnection(_connect.BuildConnectionString());
+    }
+}
