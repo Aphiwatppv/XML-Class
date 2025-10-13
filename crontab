@@ -127,4 +127,102 @@ public TopResult CheckTopProcesses(int topCount = 10)
         throw;
     }
 }
+/// <summary>
+/// Check several processes at once by name/substring (case-insensitive).
+/// Returns per-name matches and overall AllFound/Missing.
+/// </summary>
+public MultiProcessResult CheckProcessesByNames(IEnumerable<string> processNames)
+{
+    try
+    {
+        var names = processNames?.Where(n => !string.IsNullOrWhiteSpace(n)).ToList() ?? new List<string>();
+        if (names.Count == 0) throw new ArgumentException("At least one process name must be provided.", nameof(processNames));
+
+        _logSystem.Info($"CheckProcessesByNames start: sudoUser={_sudoUser}, count={names.Count}");
+
+        var psLines = GetCleanProcessSnapshot(out var rawPs);
+        var lowerPs = psLines
+            .Where(l => !l.Contains("grep -i", StringComparison.OrdinalIgnoreCase)) // ignore grep helpers
+            .Select(l => (orig: l, low: l.ToLowerInvariant()))
+            .ToList();
+
+        var results = new Dictionary<string, ProcessResult>(StringComparer.OrdinalIgnoreCase);
+        var missing = new List<string>();
+
+        foreach (var name in names)
+        {
+            var needle = name.ToLowerInvariant();
+            var matches = lowerPs
+                .Where(x => x.low.Contains(needle))
+                .Select(x => x.orig)
+                .ToList();
+
+            if (matches.Count > 0)
+            {
+                _logSystem.Info($"Process '{name}' found: {matches.Count} matches");
+                results[name] = new ProcessResult
+                {
+                    Exists = true,
+                    Entries = matches,
+                    RawOutput = string.Join("\n", matches)
+                };
+            }
+            else
+            {
+                _logSystem.Warning($"Process '{name}' not found.");
+                results[name] = new ProcessResult { Exists = false, Entries = new List<string>(), RawOutput = "" };
+                missing.Add(name);
+            }
+        }
+
+        var allFound = missing.Count == 0;
+        return new MultiProcessResult
+        {
+            Results = results,
+            AllFound = allFound,
+            Missing = missing,
+            RawPsOutput = rawPs
+        };
+    }
+    catch (Exception ex)
+    {
+        _logSystem.Error($"CheckProcessesByNames error: {ex.Message}");
+        throw;
+    }
+}
+private List<string> GetCleanProcessSnapshot(out string raw)
+{
+    string script = "ps -ef 2>&1";
+    var cmdText = BuildSudoCmd(script);
+
+    using var ssh = CreateSsh(_auth);
+    ssh.Connect();
+    var cmd = ssh.CreateCommand(cmdText);
+    var output = cmd.Execute();
+    var exit = cmd.ExitStatus;
+    ssh.Disconnect();
+
+    raw = output;
+
+    var lines = output
+        .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+        .Select(l => l.Trim())
+        .ToList();
+
+    // Remove banner / profile chatter if any
+    lines.RemoveAll(l =>
+        l.StartsWith("EBS instance:", StringComparison.OrdinalIgnoreCase) ||
+        l.StartsWith("Sourcing ", StringComparison.OrdinalIgnoreCase) ||
+        l.Contains(".profile-ebs", StringComparison.OrdinalIgnoreCase) ||
+        l.Contains("successfully loaded", StringComparison.OrdinalIgnoreCase));
+
+    return lines;
+}
+public sealed class MultiProcessResult
+{
+    public Dictionary<string, ProcessResult> Results { get; init; } = new();
+    public bool AllFound { get; init; }
+    public List<string> Missing { get; init; } = new();
+    public string RawPsOutput { get; init; } = "";
+}
 
