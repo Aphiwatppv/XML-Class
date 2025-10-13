@@ -1,0 +1,48 @@
+public async Task<IReadOnlyList<TestProgramInfo>> GetTestProgramsAsync(
+    IEnumerable<string>? names = null,
+    IEnumerable<string>? revisions = null,
+    IEnumerable<string>? steps = null,
+    CancellationToken ct = default)
+{
+    // Build dynamic WHERE clauses based on provided lists
+    var clauses = new List<string>();
+
+    if (names != null && names.Any())
+        clauses.Add("tp.name IN :names");
+    if (revisions != null && revisions.Any())
+        clauses.Add("tp.revision IN :revisions");
+    if (steps != null && steps.Any())
+        clauses.Add("ma.measstp_name IN :steps");
+
+    string whereClause = clauses.Count > 0
+        ? "WHERE " + string.Join(" AND ", clauses)
+        : string.Empty;
+
+    string sql = $@"
+SELECT
+    tp.name AS tp_name,
+    tp.revision AS tp_rev,
+    ma.measstp_name AS meas_step,
+    ma.measds_name AS meas_ds,
+    tp.tdf_status,
+    tp.visible_flag AS tp_visible,
+    tp.tdf_user,
+    tp.create_date,
+    tp.id AS tp_id
+FROM testprograms tp
+JOIN measurements_allowed ma ON ma.id = tp.measallw_id
+{whereClause}
+ORDER BY tp.name, tp.revision";
+
+    var param = new
+    {
+        names = names?.ToArray(),
+        revisions = revisions?.ToArray(),
+        steps = steps?.ToArray()
+    };
+
+    _log.Info($"[TESTPROGRAM] Querying with filters: names={names?.Count() ?? 0}, revs={revisions?.Count() ?? 0}, steps={steps?.Count() ?? 0}");
+
+    return await _db.QueryAsync<TestProgramInfo>(
+        sql, param, commandType: CommandType.Text, ct: ct);
+}
