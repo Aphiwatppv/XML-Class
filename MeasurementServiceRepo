@@ -1,0 +1,70 @@
+namespace ServerConnection.Repositories
+{
+    public sealed class LotRecentSummary
+    {
+        public string LOT_ID { get; init; } = "";
+        public int WAFER_COUNT { get; init; }
+        public string CURRENT_TEST_MODE { get; init; } = "";
+        public string LATEST_MEASCAT_NAME { get; init; } = "";
+        public DateTime? LATEST_LOADING_TIME { get; init; }
+    }
+
+    public interface IMeasurementServiceRepo
+    {
+        Task<IReadOnlyList<LotRecentSummary>> GetRecentLotsAsync(
+            int topN = 60,
+            CancellationToken ct = default);
+    }
+
+    public sealed class MeasurementServiceRepo : IMeasurementServiceRepo
+    {
+        private readonly IDapperDataAccess _db;
+        private readonly ILogSystem _log;
+
+        public MeasurementServiceRepo(IDapperDataAccess db, ILogSystem log)
+        {
+            _db = db ?? throw new ArgumentNullException(nameof(db));
+            _log = log ?? throw new ArgumentNullException(nameof(log));
+        }
+
+        public async Task<IReadOnlyList<LotRecentSummary>> GetRecentLotsAsync(
+            int topN = 60,
+            CancellationToken ct = default)
+        {
+            if (topN <= 0) topN = 60;
+
+            const string sql = @"
+SELECT
+    lot_id,
+    wafer_count,
+    current_test_mode,
+    latest_meascat_name,
+    latest_loading_time
+FROM (
+    SELECT
+        meas.meas_lot_id AS lot_id,
+        COUNT(DISTINCT tu.wafernumber) AS wafer_count,
+        MAX(meas.timestamp_loading) AS latest_loading_time,
+        MAX(measallw.measstp_name || meas.sub_meas_step)
+            KEEP (DENSE_RANK LAST ORDER BY meas.timestamp_loading) AS current_test_mode,
+        MAX(meas.meascat_name)
+            KEEP (DENSE_RANK LAST ORDER BY meas.timestamp_loading) AS latest_meascat_name,
+        ROW_NUMBER() OVER (ORDER BY MAX(meas.timestamp_loading) DESC) AS rn
+    FROM measurements           meas
+    JOIN measurements_allowed   measallw ON meas.measallw_id = measallw.id
+    JOIN tracking_units         tu       ON tu.id = meas.tunit_id
+    WHERE meas.test_type IS NOT NULL
+    GROUP BY meas.meas_lot_id
+)
+WHERE rn <= :top_n
+ORDER BY latest_loading_time DESC";
+
+            _log.Info($"[MEAS] Fetching recent lots (top {topN})");
+            return await _db.QueryAsync<LotRecentSummary>(
+                sql,
+                new { top_n = topN },
+                commandType: CommandType.Text,
+                ct: ct);
+        }
+    }
+}
