@@ -1,0 +1,130 @@
+public sealed class ProcessResult
+{
+    public bool Exists { get; init; }
+    public List<string> Entries { get; init; } = new();
+    public string RawOutput { get; init; } = "";
+}
+
+public sealed class TopResult
+{
+    public bool Exists { get; init; }
+    public List<string> TopEntries { get; init; } = new();
+    public string RawOutput { get; init; } = "";
+}
+
+
+
+public ProcessResult CheckProcessList(string? filter = null)
+{
+    try
+    {
+        _logSystem.Info($"CheckProcessList start: sudoUser={_sudoUser}, filter={filter ?? "-"}");
+
+        string script = "ps -ef 2>&1";
+        var cmdText = BuildSudoCmd(script);
+
+        using var ssh = CreateSsh(_auth);
+        ssh.Connect();
+        var cmd = ssh.CreateCommand(cmdText);
+        var output = cmd.Execute();
+        var exit = cmd.ExitStatus;
+        ssh.Disconnect();
+
+        // Split & clean lines
+        var lines = output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.Trim())
+            .ToList();
+
+        // Filter banners just in case
+        lines.RemoveAll(l =>
+            l.StartsWith("EBS instance:", StringComparison.OrdinalIgnoreCase) ||
+            l.StartsWith("Sourcing ", StringComparison.OrdinalIgnoreCase) ||
+            l.Contains(".profile-ebs", StringComparison.OrdinalIgnoreCase) ||
+            l.Contains("successfully loaded", StringComparison.OrdinalIgnoreCase)
+        );
+
+        if (!string.IsNullOrWhiteSpace(filter))
+            lines = lines.Where(l => l.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        var cleanOutput = string.Join("\n", lines);
+
+        if (exit == 0 && lines.Count > 0)
+        {
+            _logSystem.Info($"CheckProcessList done: {lines.Count} processes (filter={filter ?? "none"})");
+            return new ProcessResult
+            {
+                Exists = true,
+                Entries = lines,
+                RawOutput = cleanOutput
+            };
+        }
+
+        _logSystem.Warning($"No processes found (filter={filter ?? "none"})");
+        return new ProcessResult { Exists = false, RawOutput = cleanOutput };
+    }
+    catch (Exception ex)
+    {
+        _logSystem.Error($"CheckProcessList error: {ex.Message}");
+        throw;
+    }
+}
+public TopResult CheckTopProcesses(int topCount = 10)
+{
+    try
+    {
+        _logSystem.Info($"CheckTopProcesses start: sudoUser={_sudoUser}, topCount={topCount}");
+
+        // Run in batch mode (non-interactive)
+        string script = "top -b -n 1 2>&1";
+        var cmdText = BuildSudoCmd(script);
+
+        using var ssh = CreateSsh(_auth);
+        ssh.Connect();
+        var cmd = ssh.CreateCommand(cmdText);
+        var output = cmd.Execute();
+        var exit = cmd.ExitStatus;
+        ssh.Disconnect();
+
+        var lines = output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.Trim())
+            .ToList();
+
+        // Remove banner noise
+        lines.RemoveAll(l =>
+            l.StartsWith("EBS instance:", StringComparison.OrdinalIgnoreCase) ||
+            l.StartsWith("Sourcing ", StringComparison.OrdinalIgnoreCase) ||
+            l.Contains(".profile-ebs", StringComparison.OrdinalIgnoreCase) ||
+            l.Contains("successfully loaded", StringComparison.OrdinalIgnoreCase)
+        );
+
+        var cleanOutput = string.Join("\n", lines);
+
+        // Find start of process section (line starting with PID)
+        int startIdx = lines.FindIndex(l => l.StartsWith("PID "));
+        var topLines = (startIdx >= 0)
+            ? lines.Skip(startIdx + 1).Take(topCount).ToList()
+            : lines.TakeLast(topCount).ToList();
+
+        if (exit == 0 && topLines.Count > 0)
+        {
+            _logSystem.Info($"CheckTopProcesses done: {topLines.Count} top entries.");
+            return new TopResult
+            {
+                Exists = true,
+                TopEntries = topLines,
+                RawOutput = cleanOutput
+            };
+        }
+
+        _logSystem.Warning($"No top processes found.");
+        return new TopResult { Exists = false, RawOutput = cleanOutput };
+    }
+    catch (Exception ex)
+    {
+        _logSystem.Error($"CheckTopProcesses error: {ex.Message}");
+        throw;
+    }
+}
+
