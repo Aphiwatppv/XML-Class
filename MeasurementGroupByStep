@@ -1,0 +1,72 @@
+namespace ServerConnection.Repositories
+{
+    public sealed class MeasurementGroupByStep
+    {
+        public string LOT_ID { get; init; } = "";
+        public string STEP { get; init; } = "";
+        public string SUB_STEP { get; init; } = "";
+        public string TEST_TYPE { get; init; } = "";
+        public string MEASCAT_NAME { get; init; } = "";
+
+        public DateTime? LATEST_LOADING_TIME { get; init; }   // MAX(timestamp_loading)
+        public int TOTAL_MEASUREMENTS { get; init; }          // COUNT(*)
+        public int WAFER_COUNT { get; init; }                 // COUNT(DISTINCT wafernumber)
+    }
+
+    public partial class MeasurementServiceRepo
+    {
+        /// <summary>
+        /// Groups by (LOT_ID, STEP, SUB_STEP, TEST_TYPE, MEASCAT_NAME) and returns MAX(timestamp_loading)
+        /// per group, with counts. Results are ordered by latest loading time (desc).
+        /// </summary>
+        public async Task<IReadOnlyList<MeasurementGroupByStep>> GetGroupedByLotStepAsync(
+            string lotId,
+            int? topN = null,
+            CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(lotId))
+                throw new ArgumentException("lotId is required.", nameof(lotId));
+
+            const string sql = @"
+SELECT
+    lot_id,
+    step,
+    sub_step,
+    test_type,
+    meascat_name,
+    latest_loading_time,
+    total_measurements,
+    wafer_count
+FROM (
+    SELECT
+        meas.meas_lot_id        AS lot_id,
+        measallw.measstp_name   AS step,
+        meas.sub_meas_step      AS sub_step,
+        meas.test_type          AS test_type,
+        meas.meascat_name       AS meascat_name,
+        MAX(meas.timestamp_loading)                      AS latest_loading_time,
+        COUNT(*)                                          AS total_measurements,
+        COUNT(DISTINCT tu.wafernumber)                    AS wafer_count,
+        ROW_NUMBER() OVER (ORDER BY MAX(meas.timestamp_loading) DESC) AS rn
+    FROM measurements           meas
+    JOIN measurements_allowed   measallw ON meas.measallw_id = measallw.id
+    JOIN tracking_units         tu       ON tu.id = meas.tunit_id
+    WHERE meas.meas_lot_id = :lot_id
+    GROUP BY
+        meas.meas_lot_id,
+        measallw.measstp_name,
+        meas.sub_meas_step,
+        meas.test_type,
+        meas.meascat_name
+)
+WHERE (:top_n IS NULL OR rn <= :top_n)
+ORDER BY latest_loading_time DESC";
+
+            var param = new { lot_id = lotId, top_n = topN };
+
+            _log.Info($"[MEAS] Group-by step for lot={lotId}, topN={(topN?.ToString() ?? "-")}");
+            return await _db.QueryAsync<MeasurementGroupByStep>(
+                sql, param, commandType: CommandType.Text, ct: ct);
+        }
+    }
+}
