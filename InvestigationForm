@@ -1,0 +1,139 @@
+using BKGEBSInvestigation.InvestigationServicesUserController.HelperStyle;
+using BKGEBSInvestigation.WTForm;
+using InvestigationServices.EBSORepos;
+using InvestigationServices.ModelEBSO;
+using LogSystem;
+using ServerConnection.Model;
+using ServerConnection.Services;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace BKGEBSInvestigation.InvestigationServicesUserController
+{
+    public partial class WTInvestigationController : UserControl
+    {
+
+        LogSystem.ILogSystem _logSystem;
+
+        IEngineInvestigation engineInvestigation;
+
+        List<string> TestProgram = new List<string>();
+        List<string> TestProgramRevisions = new List<string>();
+
+        List<AttributeInfo> attributeInfos = new List<AttributeInfo>();
+
+        string CurrentOperation = string.Empty;
+        public WTInvestigationController()
+        {
+            InitializeComponent();
+            InitialSetup();
+
+            //  QueryInformaion();
+        }
+
+
+        private void InitialSetup()
+        {
+            _logSystem = new LogSystem.LogSystem("Investigation", "Investigation");
+            engineInvestigation = new EngineInvestigation(_logSystem);
+
+            InitializeSyle.InitializeDataGridView(dataGridViewSTEPP);
+            InitializeSyle.InitializeDataGridView(dataGridViewEBSO);
+            InitializeSyle.InitializeDataGridView(dataGridViewEBSA);
+        }
+
+
+        private void CheckCurrentOperation(List<AttributeInfo> attributeInfos )
+        {
+            if(attributeInfos.Any())
+            {
+               foreach(AttributeInfo attributeInfo in attributeInfos)
+                {
+                   if(attributeInfo.ATTR_NAME == "CURRENT_OPERATION")
+                    {
+                        CurrentOperation = attributeInfo.ATTR_VALUE;
+                        break;
+                    }
+                  
+                }
+            }
+        }
+
+
+        private async void QueryInformaion()
+        {
+            var result = await engineInvestigation.EngineGetRecentLotsSummary(100);
+            dataGridViewSTEPP.DataSource = result;
+        }
+        private void dataGridView1_CellContentClick(object sender, DataGridViewCellEventArgs e)
+        {
+
+        }
+
+        private async void buttonInvestigation_Click(object sender, EventArgs e)
+        {
+
+            string lotId = textBoxLotId.Text.Trim();
+
+            var result = await engineInvestigation.EngineGettLotsFromDLSDLM(lotId);
+            dataGridViewSTEPP.DataSource = result;
+
+
+            TestProgram = new List<string>();
+            TestProgramRevisions = new List<string>();
+            if (result.Any())
+            {
+                foreach (var item in result)
+                {
+                    TestProgram.Add(item.TEST_PROG_NAME);
+                    TestProgramRevisions.Add(item.TEST_PROG_REVISION);
+                }
+            }
+
+
+            var resultebso = await engineInvestigation.EngineGetDatafromEBSO(lotId);
+            dataGridViewEBSO.DataSource = resultebso;
+
+            var resultebsa = await engineInvestigation.EngineGetDatafromEBSA(lotId);
+            dataGridViewEBSA.DataSource = resultebsa;
+
+            var attributeInfos = await engineInvestigation.EngineGetAttributeInfoEBSA(lotId);
+            CurrentOperation = string.Empty;
+            CheckCurrentOperation(attributeInfos.ToList());
+            labelCurrentOpr.Text = CurrentOperation.ToString();
+        }
+
+
+
+
+
+        private void WTInvestigationController_Load(object sender, EventArgs e)
+        {
+
+        }
+
+        private async void buttonTestProgramEBSO_Click(object sender, EventArgs e)
+        {
+            var TestProgramFromEBSO = await engineInvestigation.EngineCheckTestProgramEBSO(TestProgram, TestProgramRevisions);
+            string lotId = textBoxLotId.Text.Trim();
+            TestProgramForm testProgramForm = new TestProgramForm(TestProgramFromEBSO, $"Test Program for {lotId} lot in EBSO");
+            testProgramForm.Show();
+        }
+
+        private async void buttonTestProgramEBSA_Click(object sender, EventArgs e)
+        {
+            var TestProgramFromEBSA = await engineInvestigation.EngineCheckTestProgramEBSA(TestProgram, TestProgramRevisions);
+            string lotId = textBoxLotId.Text.Trim();
+            TestProgramForm testProgramForm = new TestProgramForm(TestProgramFromEBSA, $"Test Program for {lotId} lot in EBSA");
+            testProgramForm.Show();
+        }
+    }
+}
