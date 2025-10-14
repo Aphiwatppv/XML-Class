@@ -1,0 +1,416 @@
+using BKGEBSInvestigation.InvestigationServicesUserController.HelperStyle;
+using BKGEBSInvestigation.WTForm;
+using InvestigationServices.EBSORepos;
+using InvestigationServices.ModelEBSO;
+using LogSystem;
+using ServerConnection.Model;
+using ServerConnection.Services;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace BKGEBSInvestigation.InvestigationServicesUserController
+{
+    public partial class WTInvestigationController : UserControl
+    {
+        // ---------------------------------------------------------------------
+        // Dependencies
+        // ---------------------------------------------------------------------
+        private readonly ILogSystem _logSystem;
+        private readonly IEngineInvestigation _engine;
+
+        // ---------------------------------------------------------------------
+        // State & Binding
+        // ---------------------------------------------------------------------
+        private readonly BindingSource _bsSTEPP = new BindingSource();
+        private readonly BindingSource _bsEBSO = new BindingSource();
+        private readonly BindingSource _bsEBSA = new BindingSource();
+
+        private readonly List<string> _testPrograms = new List<string>();
+        private readonly List<string> _testProgramRevisions = new List<string>();
+
+        private CancellationTokenSource _cts;
+        private string _currentOperation = string.Empty;
+
+        // ---------------------------------------------------------------------
+        // Status Strip UI (progress / errors)
+        // ---------------------------------------------------------------------
+        private StatusStrip _statusStrip;
+        private ToolStripStatusLabel _statusText;
+        private ToolStripStatusLabel _statusSpacer; // spring
+        private ToolStripProgressBar _statusProgress;
+
+        // ---------------------------------------------------------------------
+        // Constructors
+        // ---------------------------------------------------------------------
+        public WTInvestigationController()
+            : this(new LogSystem.LogSystem("Investigation", "Investigation"),
+                   new EngineInvestigation(new LogSystem.LogSystem("Investigation", "Investigation")))
+        {
+        }
+
+        // Overload for DI/unit tests
+        public WTInvestigationController(ILogSystem logger, IEngineInvestigation engine)
+        {
+            InitializeComponent();
+            _logSystem = logger ?? throw new ArgumentNullException(nameof(logger));
+            _engine = engine ?? throw new ArgumentNullException(nameof(engine));
+
+            InitialSetup();
+        }
+
+        // ---------------------------------------------------------------------
+        // Initialization
+        // ---------------------------------------------------------------------
+        private void InitialSetup()
+        {
+            // Style your grids via your helper (flat, dark, etc.)
+            InitializeSyle.InitializeDataGridView(dataGridViewSTEPP);
+            InitializeSyle.InitializeDataGridView(dataGridViewEBSO);
+            InitializeSyle.InitializeDataGridView(dataGridViewEBSA);
+
+            // Bind DataGridViews to BindingSources
+            dataGridViewSTEPP.DataSource = _bsSTEPP;
+            dataGridViewEBSO.DataSource = _bsEBSO;
+            dataGridViewEBSA.DataSource = _bsEBSA;
+
+            dataGridViewSTEPP.AutoGenerateColumns = true;
+            dataGridViewEBSO.AutoGenerateColumns = true;
+            dataGridViewEBSA.AutoGenerateColumns = true;
+
+            BuildStatusUI();
+            StopProgress("Ready");
+        }
+
+        private void BuildStatusUI()
+        {
+            _statusStrip = new StatusStrip
+            {
+                SizingGrip = false,
+                Dock = DockStyle.Bottom,
+                BackColor = Color.FromArgb(25, 25, 25),
+                ForeColor = Color.Gainsboro,
+                RenderMode = ToolStripRenderMode.System
+            };
+
+            _statusText = new ToolStripStatusLabel("Ready")
+            {
+                Spring = false,
+                ForeColor = Color.Gainsboro
+            };
+
+            _statusSpacer = new ToolStripStatusLabel
+            {
+                Spring = true,
+                Text = ""
+            };
+
+            _statusProgress = new ToolStripProgressBar
+            {
+                Visible = false,
+                Minimum = 0,
+                Maximum = 100,
+                Value = 0,
+                Style = ProgressBarStyle.Continuous,
+                AutoSize = false,
+                Width = 160
+            };
+
+            _statusStrip.Items.Add(_statusText);
+            _statusStrip.Items.Add(_statusSpacer);
+            _statusStrip.Items.Add(new ToolStripControlHost(new Panel() { Width = 4 }));
+            _statusStrip.Items.Add(_statusProgress);
+
+            Controls.Add(_statusStrip);
+        }
+
+        // ---------------------------------------------------------------------
+        // Thread-safe Status Helpers
+        // ---------------------------------------------------------------------
+        private void UpdateStatus(string text, bool isError = false)
+        {
+            if (InvokeRequired) { BeginInvoke(new Action(() => UpdateStatus(text, isError))); return; }
+            _statusText.Text = text;
+            _statusText.ForeColor = isError ? Color.IndianRed : Color.Gainsboro;
+        }
+
+        private void StartProgress(string text = "Working…", bool marquee = true)
+        {
+            if (InvokeRequired) { BeginInvoke(new Action(() => StartProgress(text, marquee))); return; }
+            UpdateStatus(text, false);
+            _statusProgress.Visible = true;
+            _statusProgress.Value = 0;
+            _statusProgress.Style = marquee ? ProgressBarStyle.Marquee : ProgressBarStyle.Continuous;
+            _statusProgress.MarqueeAnimationSpeed = marquee ? 30 : 0;
+        }
+
+        private void ReportProgress(int percent, string text = null)
+        {
+            if (InvokeRequired) { BeginInvoke(new Action(() => ReportProgress(percent, text))); return; }
+            if (text != null) UpdateStatus(text, false);
+            if (_statusProgress.Style != ProgressBarStyle.Continuous)
+            {
+                _statusProgress.Style = ProgressBarStyle.Continuous;
+                _statusProgress.MarqueeAnimationSpeed = 0;
+            }
+            _statusProgress.Visible = true;
+            _statusProgress.Value = Math.Max(_statusProgress.Minimum, Math.Min(percent, _statusProgress.Maximum));
+        }
+
+        private void StopProgress(string text = "Ready")
+        {
+            if (InvokeRequired) { BeginInvoke(new Action(() => StopProgress(text))); return; }
+            _statusProgress.Visible = false;
+            _statusProgress.MarqueeAnimationSpeed = 0;
+            UpdateStatus(text, false);
+        }
+
+        // ---------------------------------------------------------------------
+        // UI helpers
+        // ---------------------------------------------------------------------
+        private static string NormalizeLotId(string input) => (input ?? string.Empty).Trim();
+
+        private bool TryGetLotId(out string lotId)
+        {
+            lotId = NormalizeLotId(textBoxLotId.Text);
+            if (string.IsNullOrWhiteSpace(lotId))
+            {
+                MessageBox.Show(this, "Please enter a Lot ID.", "Validation",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return false;
+            }
+            return true;
+        }
+
+        private void SetBusyUI(bool busy)
+        {
+            Cursor = busy ? Cursors.WaitCursor : Cursors.Default;
+            buttonInvestigation.Enabled = !busy;
+            buttonTestProgramEBSO.Enabled = !busy;
+            buttonTestProgramEBSA.Enabled = !busy;
+
+            if (busy) StartProgress("Running…", marquee: true);
+            else StopProgress("Ready");
+        }
+
+        private void UpdateCurrentOperationLabel(string value)
+        {
+            _currentOperation = value ?? string.Empty;
+            labelCurrentOpr.Text = _currentOperation;
+        }
+
+        private static string FindCurrentOperation(IEnumerable<AttributeInfo> attrs)
+        {
+            var attr = attrs?.FirstOrDefault(a =>
+                string.Equals(a.ATTR_NAME, "CURRENT_OPERATION", StringComparison.OrdinalIgnoreCase));
+            return attr?.ATTR_VALUE ?? string.Empty;
+        }
+
+        private void FillTestProgramLists<T>(IEnumerable<T> rows, Func<T, string> nameSel, Func<T, string> revSel)
+        {
+            _testPrograms.Clear();
+            _testProgramRevisions.Clear();
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in rows)
+            {
+                var name = nameSel(r) ?? string.Empty;
+                var rev = revSel(r) ?? string.Empty;
+                var key = name + "||" + rev;
+                if (seen.Add(key))
+                {
+                    _testPrograms.Add(name);
+                    _testProgramRevisions.Add(rev);
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Async operations
+        // ---------------------------------------------------------------------
+        private async Task QueryRecentLotsSummaryAsync(int take, CancellationToken ct)
+        {
+            try
+            {
+                SetBusyUI(true);
+                StartProgress($"Loading recent {take} lots…", marquee: true);
+                var result = await _engine.EngineGetRecentLotsSummary(take).ConfigureAwait(true);
+                _bsSTEPP.DataSource = result?.ToList() ?? new List<object>();
+                ReportProgress(100, $"Loaded {(_bsSTEPP.Count)} recent lots.");
+                _logSystem.Info($"Loaded recent lots summary (count={_bsSTEPP.Count})");
+            }
+            catch (OperationCanceledException)
+            {
+                UpdateStatus("Canceled.", false);
+                _logSystem.Warning("QueryRecentLotsSummaryAsync: canceled.");
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus("Failed to load recent lots: " + ex.Message, isError: true);
+                _logSystem.Error("QueryRecentLotsSummaryAsync failed: " + ex);
+                MessageBox.Show(this, "Failed to load recent lots summary.\n" + ex.Message,
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                SetBusyUI(false);
+            }
+        }
+
+        private async Task InvestigateLotAsync(string lotId, CancellationToken ct)
+        {
+            try
+            {
+                SetBusyUI(true);
+                StartProgress($"Investigating lot {lotId}…", marquee: true);
+
+                // 1) STEPP / DLS-DLM
+                UpdateStatus($"[{lotId}] Loading STEPP data…");
+                var stepp = await _engine.EngineGettLotsFromDLSDLM(lotId).ConfigureAwait(true);
+                _bsSTEPP.DataSource = stepp?.ToList() ?? new List<object>();
+                FillTestProgramLists(stepp ?? Enumerable.Empty<dynamic>(),
+                                     r => r.TEST_PROG_NAME,
+                                     r => r.TEST_PROG_REVISION);
+                ReportProgress(25, $"[{lotId}] STEPP loaded ({_bsSTEPP.Count}).");
+                _logSystem.Info($"STEPP data loaded for lot {lotId} (rows={_bsSTEPP.Count})");
+
+                // 2) EBSO
+                UpdateStatus($"[{lotId}] Loading EBSO data…");
+                var ebso = await _engine.EngineGetDatafromEBSO(lotId).ConfigureAwait(true);
+                _bsEBSO.DataSource = ebso?.ToList() ?? new List<object>();
+                ReportProgress(50, $"[{lotId}] EBSO loaded ({_bsEBSO.Count}).");
+                _logSystem.Info($"EBSO data loaded for lot {lotId} (rows={_bsEBSO.Count})");
+
+                // 3) EBSA
+                UpdateStatus($"[{lotId}] Loading EBSA data…");
+                var ebsa = await _engine.EngineGetDatafromEBSA(lotId).ConfigureAwait(true);
+                _bsEBSA.DataSource = ebsa?.ToList() ?? new List<object>();
+                ReportProgress(75, $"[{lotId}] EBSA loaded ({_bsEBSA.Count}).");
+                _logSystem.Info($"EBSA data loaded for lot {lotId} (rows={_bsEBSA.Count})");
+
+                // 4) Attributes -> Current Operation
+                UpdateStatus($"[{lotId}] Checking attributes…");
+                var attrs = await _engine.EngineGetAttributeInfoEBSA(lotId).ConfigureAwait(true);
+                var curOp = FindCurrentOperation(attrs ?? Enumerable.Empty<AttributeInfo>());
+                UpdateCurrentOperationLabel(curOp);
+                ReportProgress(100, $"[{lotId}] Done. Current Operation: {curOp}");
+                _logSystem.Info($"Current operation for {lotId}: '{curOp}'");
+            }
+            catch (OperationCanceledException)
+            {
+                UpdateStatus("Canceled.", false);
+                _logSystem.Warning("InvestigateLotAsync: canceled.");
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Error: {ex.Message}", isError: true);
+                _logSystem.Error($"InvestigateLotAsync failed for lot {lotId}: {ex}");
+                MessageBox.Show(this,
+                    $"Investigation failed for lot '{lotId}'.\n{ex.Message}",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                SetBusyUI(false);
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Event handlers
+        // ---------------------------------------------------------------------
+        private async void WTInvestigationController_Load(object sender, EventArgs e)
+        {
+            // If you want initial data on load, uncomment:
+            // _cts = new CancellationTokenSource();
+            // await QueryRecentLotsSummaryAsync(100, _cts.Token);
+        }
+
+        private async void buttonInvestigation_Click(object sender, EventArgs e)
+        {
+            if (!TryGetLotId(out var lotId))
+                return;
+
+            _cts?.Cancel();
+            _cts = new CancellationTokenSource();
+            await InvestigateLotAsync(lotId, _cts.Token);
+        }
+
+        private async void buttonTestProgramEBSO_Click(object sender, EventArgs e)
+        {
+            if (_testPrograms.Count == 0)
+            {
+                UpdateStatus("No test program data. Investigate a lot first.", isError: true);
+                MessageBox.Show(this, "No test program data. Please investigate a lot first.", "Info",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            try
+            {
+                SetBusyUI(true);
+                StartProgress("Checking EBSO test programs…");
+                var lotId = NormalizeLotId(textBoxLotId.Text);
+                var list = await _engine.EngineCheckTestProgramEBSO(_testPrograms, _testProgramRevisions).ConfigureAwait(true);
+                StopProgress($"EBSO test programs ready for {lotId}");
+                var dlg = new TestProgramForm(list, $"Test Program for {lotId} lot in EBSO");
+                dlg.Show(this);
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"EBSO check failed: {ex.Message}", isError: true);
+                _logSystem.Error("buttonTestProgramEBSO_Click failed: " + ex);
+                MessageBox.Show(this, "Failed to load EBSO test programs.\n" + ex.Message, "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                SetBusyUI(false);
+            }
+        }
+
+        private async void buttonTestProgramEBSA_Click(object sender, EventArgs e)
+        {
+            if (_testPrograms.Count == 0)
+            {
+                UpdateStatus("No test program data. Investigate a lot first.", isError: true);
+                MessageBox.Show(this, "No test program data. Please investigate a lot first.", "Info",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            try
+            {
+                SetBusyUI(true);
+                StartProgress("Checking EBSA test programs…");
+                var lotId = NormalizeLotId(textBoxLotId.Text);
+                var list = await _engine.EngineCheckTestProgramEBSA(_testPrograms, _testProgramRevisions).ConfigureAwait(true);
+                StopProgress($"EBSA test programs ready for {lotId}");
+                var dlg = new TestProgramForm(list, $"Test Program for {lotId} lot in EBSA");
+                dlg.Show(this);
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"EBSA check failed: {ex.Message}", isError: true);
+                _logSystem.Error("buttonTestProgramEBSA_Click failed: " + ex);
+                MessageBox.Show(this, "Failed to load EBSA test programs.\n" + ex.Message, "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                SetBusyUI(false);
+            }
+        }
+
+        // Optional "Cancel" button handler
+        private void buttonCancel_Click(object sender, EventArgs e)
+        {
+            _cts?.Cancel();
+        }
+    }
+}
