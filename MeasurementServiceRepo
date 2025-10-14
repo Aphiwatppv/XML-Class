@@ -68,3 +68,46 @@ ORDER BY latest_loading_time DESC";
         }
     }
 }
+
+
+public async Task<IReadOnlyList<VirtualProductKeyRecord>> GetVirtualProductKeysByLotAsync(
+    string lotId,
+    CancellationToken ct = default)
+{
+    if (string.IsNullOrWhiteSpace(lotId))
+        throw new ArgumentException("lotId is required.", nameof(lotId));
+
+    const string sql = @"
+SELECT
+    tu.id,
+    tu.lot_id,
+    tvpk.vprodkey_dwh_product_colname,
+    vpk.dwh_product_colname_value,
+    tvpk.timestamp_loading,
+    tvpk.data_provider
+FROM
+    tunit_vprodkey tvpk
+    JOIN virtual_product_keys vpk ON vpk.id = tvpk.vprodkey_id
+    JOIN tracking_units tu       ON tvpk.tunit_id = tu.id
+WHERE
+    tu.lot_id = :lot_id
+ORDER BY
+    tvpk.timestamp_loading DESC";
+
+    var param = new { lot_id = lotId };
+
+    _log.Info($"[VPK] Fetching virtual product keys for lot={lotId}");
+
+    return await _db.QueryAsync<VirtualProductKeyRecord>(
+        sql, param, commandType: CommandType.Text, ct: ct);
+}
+public sealed class VirtualProductKeyRecord
+{
+    public long ID { get; init; }
+    public string LOT_ID { get; init; } = "";
+    public string VPRODKEY_DWH_PRODUCT_COLNAME { get; init; } = "";
+    public string DWH_PRODUCT_COLNAME_VALUE { get; init; } = "";
+    public DateTime? TIMESTAMP_LOADING { get; init; }
+    public string DATA_PROVIDER { get; init; } = "";
+}
+
