@@ -77,3 +77,54 @@ private static string BuildCrontabSummary(string name, bool exists, List<string>
     var more = n > k ? $"\n(+{n - k} more…)" : "";
     return $"{name}: {n} job{(n == 1 ? "" : "s")}\n• {preview}{more}";
 }
+
+
+private void BuildCrontabBadges()
+{
+    _badgeEBSO   = CreateBadge(panelEBSOCrontab);
+    _badgeEBSA   = CreateBadge(panelEBSACrontab);
+    _badgeEBSOXe1= CreateBadge(panelEBSOXe1Crontab);
+    _badgeEBSOXe2= CreateBadge(panelEBSOXe2Crontab);
+}
+
+private Label CreateBadge(Panel host)
+{
+    var badge = new Label
+    {
+        AutoSize = false,
+        Width = 88,
+        Height = 20,
+        Text = "—",
+        TextAlign = ContentAlignment.MiddleCenter,
+        BackColor = Flat47Style.SurfaceAlt,
+        ForeColor = Flat47Style.TextMuted,
+        BorderStyle = BorderStyle.FixedSingle,
+        Anchor = AnchorStyles.Top | AnchorStyles.Right,
+        Margin = new Padding(0)
+    };
+
+    // place with a small margin from top-right
+    badge.Location = new Point(host.Width - badge.Width - 6, 6);
+    host.Controls.Add(badge);
+
+    // keep position if the panel resizes
+    host.Resize += (_, __) =>
+    {
+        badge.Location = new Point(host.Width - badge.Width - 6, 6);
+    };
+
+    // hover pulse hint
+    badge.MouseEnter += (_, __) => _ = PulseAsync("Crontab status…");
+
+    return badge;
+}
+// ---- Crontab badges & tooltip ----
+private readonly ToolTip _tip = new ToolTip {
+    AutomaticDelay = 300, ReshowDelay = 100, InitialDelay = 300,
+    ShowAlways = true
+};
+private Label _badgeEBSO;
+private Label _badgeEBSA;
+private Label _badgeEBSOXe1;
+private Label _badgeEBSOXe2;
+
