@@ -1,0 +1,54 @@
+public sealed class XeExtractionRecord
+{
+    public long XE_ID { get; init; }
+    public string XE_NAME { get; init; } = "";
+    public long? XE_PID { get; init; }
+    public DateTime? XE_CREATE { get; init; }
+    public DateTime? XE_START { get; init; }
+    public DateTime? XE_END { get; init; }
+    public int? XE_STATUS { get; init; }
+    public int? XE_PROGRESS { get; init; }
+    public string XE_STATUS_DESC { get; init; } = "";
+    public string XE_OWNER { get; init; } = "";
+    public int? XE_TYPE { get; init; }
+    public int? XE_DELIVTYPE { get; init; }
+    public string XE_EDL { get; init; } = "";
+    public string CLNT_COMMUNICATION_ID { get; init; } = "";
+}
+
+
+public async Task<IReadOnlyList<XeExtractionRecord>> GetExtractionsByLotAsync(
+    string lotId,
+    CancellationToken ct = default)
+{
+    if (string.IsNullOrWhiteSpace(lotId))
+        throw new ArgumentException("lotId is required.", nameof(lotId));
+
+    const string sql = @"
+SELECT
+    XE_ID,
+    XE_NAME,
+    XE_PID,
+    XE_CREATE,
+    XE_START,
+    XE_END,
+    XE_STATUS,
+    XE_PROGRESS,
+    XE_STATUS_DESC,
+    XE_OWNER,
+    XE_TYPE,
+    XE_DELIVTYPE,
+    XE_EDL,
+    CLNT_COMMUNICATION_ID
+FROM XE_EXTRACTIONS
+WHERE DBMS_LOB.INSTR(XE_EDL, :lot_pattern) > 0
+ORDER BY XE_CREATE DESC";
+
+    // Oracle CLOB search: must use DBMS_LOB.INSTR instead of LIKE for large CLOBs
+    var param = new { lot_pattern = lotId };
+
+    _log.Info($"[XE_EXTRACTIONS] Searching EDL for lot pattern: {lotId}");
+
+    return await _db.QueryAsync<XeExtractionRecord>(
+        sql, param, commandType: CommandType.Text, ct: ct);
+}
