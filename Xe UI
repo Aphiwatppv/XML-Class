@@ -267,18 +267,59 @@ public sealed class XeDetailForm : Form
         BackColor = Color.White;
         FormBorderStyle = FormBorderStyle.Sizable;
 
-        // --- Left: PropertyGrid showing record info ---
-        var meta = new PropertyGrid
+        // ---- LEFT PANEL: show all info with values ----
+        var infoPanel = new TableLayoutPanel
         {
             Dock = DockStyle.Left,
             Width = 400,
-            HelpVisible = false,
-            ToolbarVisible = false,
-            PropertySort = PropertySort.NoSort,
-            SelectedObject = new MetaView(_rec)
+            AutoScroll = true,
+            ColumnCount = 2,
+            Padding = new Padding(10),
         };
+        infoPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40f));
+        infoPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60f));
 
-        // --- Right: XE_EDL viewer in cmd-style ---
+        // Helper to add row
+        void AddRow(string label, string value)
+        {
+            var lbl = new Label
+            {
+                Text = label,
+                AutoSize = true,
+                ForeColor = Color.DimGray,
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                Anchor = AnchorStyles.Left,
+                Padding = new Padding(2)
+            };
+            var val = new Label
+            {
+                Text = value,
+                AutoSize = true,
+                Font = new Font("Consolas", 9f),
+                ForeColor = Color.Black,
+                Anchor = AnchorStyles.Left,
+                Padding = new Padding(2)
+            };
+            infoPanel.Controls.Add(lbl);
+            infoPanel.Controls.Add(val);
+        }
+
+        // Populate data rows
+        AddRow("XE_ID", _rec.XE_ID.ToString());
+        AddRow("XE_NAME", _rec.XE_NAME);
+        AddRow("XE_PID", _rec.XE_PID?.ToString() ?? "-");
+        AddRow("XE_CREATE", _rec.XE_CREATE?.ToString("yyyy-MM-dd HH:mm:ss") ?? "-");
+        AddRow("XE_START", _rec.XE_START?.ToString("yyyy-MM-dd HH:mm:ss") ?? "-");
+        AddRow("XE_END", _rec.XE_END?.ToString("yyyy-MM-dd HH:mm:ss") ?? "-");
+        AddRow("XE_STATUS", _rec.XE_STATUS?.ToString() ?? "-");
+        AddRow("XE_PROGRESS", _rec.XE_PROGRESS?.ToString() ?? "-");
+        AddRow("XE_STATUS_DESC", _rec.XE_STATUS_DESC);
+        AddRow("XE_OWNER", _rec.XE_OWNER);
+        AddRow("XE_TYPE", _rec.XE_TYPE?.ToString() ?? "-");
+        AddRow("XE_DELIVTYPE", _rec.XE_DELIVTYPE?.ToString() ?? "-");
+        AddRow("CLNT_COMMUNICATION_ID", _rec.CLNT_COMMUNICATION_ID);
+
+        // ---- RIGHT PANEL: XE_EDL cmd-style viewer ----
         var edlBox = new RichTextBox
         {
             Dock = DockStyle.Fill,
@@ -316,52 +357,18 @@ public sealed class XeDetailForm : Form
         rightPanel.Controls.Add(edlBox);
         rightPanel.Controls.Add(copyBtn);
 
+        // Split view
         var split = new SplitContainer
         {
             Dock = DockStyle.Fill,
             FixedPanel = FixedPanel.Panel1,
-            SplitterDistance = meta.Width
+            SplitterDistance = infoPanel.Width
         };
-        split.Panel1.Controls.Add(meta);
+        split.Panel1.Controls.Add(infoPanel);
         split.Panel2.Controls.Add(rightPanel);
 
         Controls.Add(split);
     }
-
-    // --- MetaView defines which fields show in PropertyGrid ---
-    private sealed class MetaView
-    {
-        public MetaView(XeExtractionRecord r)
-        {
-            XE_ID = r.XE_ID;
-            XE_NAME = r.XE_NAME;
-            XE_PID = r.XE_PID;
-            XE_CREATE = r.XE_CREATE;
-            XE_START = r.XE_START;
-            XE_END = r.XE_END;
-            XE_STATUS = r.XE_STATUS;
-            XE_PROGRESS = r.XE_PROGRESS;
-            XE_STATUS_DESC = r.XE_STATUS_DESC;
-            XE_OWNER = r.XE_OWNER;
-            XE_TYPE = r.XE_TYPE;
-            XE_DELIVTYPE = r.XE_DELIVTYPE;
-            CLNT_COMMUNICATION_ID = r.CLNT_COMMUNICATION_ID;
-        }
-
-        // Displayed on the left side
-        public long XE_ID { get; }
-        public string XE_NAME { get; }
-        public long? XE_PID { get; }
-        public DateTime? XE_CREATE { get; }
-        public DateTime? XE_START { get; }
-        public DateTime? XE_END { get; }
-        public int? XE_STATUS { get; }
-        public int? XE_PROGRESS { get; }
-        public string XE_STATUS_DESC { get; }
-        public string XE_OWNER { get; }
-        public int? XE_TYPE { get; }
-        public int? XE_DELIVTYPE { get; }
-        public string CLNT_COMMUNICATION_ID { get; }
-    }
 }
+
 
