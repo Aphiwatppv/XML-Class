@@ -1,0 +1,89 @@
+using BKGEBSInvestigation.InvestigationServicesUserController;
+using BKGEBSInvestigation.WTUserController;
+using SudoLister.Model;
+
+namespace BKGEBSInvestigation
+{
+    public partial class BKGWTInvestigation
+        : Form
+    {
+        private FormDragController dragger;
+        SudoLister.EngineSudo.SudoLister _sudoLister;
+        private WTUserController.CheckStatusController _checkStatusController;
+        private WTInvestigationController wTInvestigationController;
+        public BKGWTInvestigation()
+        {
+            InitializeComponent();
+            initialCall();
+            initialDragger();
+
+
+        }
+        private void ToggleUserControl(UserControl userControl)
+        {
+            // Check if the control to toggle is already displayed
+            if (!panelMain.Controls.Contains(userControl))
+            {
+                // The control is not displayed, so display it.
+                panelMain.Controls.Clear();
+                userControl.Dock = DockStyle.Fill;
+                panelMain.Controls.Add(userControl);
+            }
+            else
+            {
+
+                userControl.Visible = !userControl.Visible;
+            }
+        }
+
+
+
+        private void initialCall()
+        {
+
+            SSHAuth sSHAuth = new SSHAuth
+            {
+                Hostname = "xxxx",
+                Username = "xxxx",
+                Password = "xxxx",
+                SudoRequireTty = xxxx,
+
+
+            };
+
+            _sudoLister = new SudoLister.EngineSudo.SudoLister(sSHAuth, "ebsdba");
+        }
+
+
+
+        private void initialDragger()
+        {
+            dragger = new FormDragController(components) { TargetForm = this };
+            dragger.Attach(panelMain);
+            dragger.Attach(sidePanel);
+            dragger.Attach(TopPanel);
+        }
+
+
+        private void TopExitBtn_Click(object sender, EventArgs e) => Application.Exit();
+        private void TopMinimizeBtn_Click(object sender, EventArgs e) => this.WindowState = FormWindowState.Minimized;
+
+        private void CheckStatusbtn_Click(object sender, EventArgs e)
+        {
+            if (_checkStatusController == null || _checkStatusController.IsDisposed)
+            {
+                _checkStatusController = new WTUserController.CheckStatusController();
+            }
+            ToggleUserControl(_checkStatusController);
+        }
+
+        private void buttonInvestigation_Click(object sender, EventArgs e)
+        {
+            if (wTInvestigationController == null || wTInvestigationController.IsDisposed)
+            {
+                wTInvestigationController = new WTInvestigationController();
+            }
+            ToggleUserControl(wTInvestigationController);
+        }
+    }
+}
