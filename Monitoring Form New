@@ -1,11 +1,6 @@
 using BKGEBSInvestigation.HelperClass;
+using BKGEBSInvestigation.MonitoringWTUserController;
 using BKGEBSInvestigation.WTForm;
-using System;
-using System.Collections.Generic;
-using System.Drawing;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Windows.Forms;
 
 namespace BKGEBSInvestigation.WTUserController
 {
@@ -24,8 +19,8 @@ namespace BKGEBSInvestigation.WTUserController
         private readonly XmlConfigManager _xmlConfigManager;
 
         // Cached crontab lines
-        private List<string> _listlineEBSO    = new List<string>();
-        private List<string> _listlineEBSA    = new List<string>();
+        private List<string> _listlineEBSO = new List<string>();
+        private List<string> _listlineEBSA = new List<string>();
         private List<string> _listlineEBSOXe1 = new List<string>();
         private List<string> _listlineEBSOXe2 = new List<string>();
 
@@ -174,22 +169,22 @@ namespace BKGEBSInvestigation.WTUserController
         private void WireStatusPulses()
         {
             // Hover pulses (preview actions)
-            buttonCrontabO.MouseEnter     += (_, __) => _ = PulseAsync("Open EBSO41 crontab…");
-            buttonCrontabA.MouseEnter     += (_, __) => _ = PulseAsync("Open EBSA42 crontab…");
-            buttonCrontabOXe1.MouseEnter  += (_, __) => _ = PulseAsync("Open EBSO41Xe1 crontab…");
-            buttonCrontabOXe2.MouseEnter  += (_, __) => _ = PulseAsync("Open EBSO41Xe2 crontab…");
-            buttonProcessEBSO.MouseEnter  += (_, __) => _ = PulseAsync("View processes in EBS41…");
-            buttonProcessEBSA.MouseEnter  += (_, __) => _ = PulseAsync("View processes in EBS42…");
-            RefreshBtn.MouseEnter         += (_, __) => _ = PulseAsync("Refresh system status…");
+            buttonCrontabO.MouseEnter += (_, __) => _ = PulseAsync("Open EBSO41 crontab…");
+            buttonCrontabA.MouseEnter += (_, __) => _ = PulseAsync("Open EBSA42 crontab…");
+            buttonCrontabOXe1.MouseEnter += (_, __) => _ = PulseAsync("Open EBSO41Xe1 crontab…");
+            buttonCrontabOXe2.MouseEnter += (_, __) => _ = PulseAsync("Open EBSO41Xe2 crontab…");
+            buttonProcessEBSO.MouseEnter += (_, __) => _ = PulseAsync("View processes in EBS41…");
+            buttonProcessEBSA.MouseEnter += (_, __) => _ = PulseAsync("View processes in EBS42…");
+            RefreshBtn.MouseEnter += (_, __) => _ = PulseAsync("Refresh system status…");
 
             // Click pulses (affirm actions)
-            buttonCrontabO.Click    += async (_, __) => await PulseAsync("Opening EBSO41 crontab…", 1200);
-            buttonCrontabA.Click    += async (_, __) => await PulseAsync("Opening EBSA42 crontab…", 1200);
+            buttonCrontabO.Click += async (_, __) => await PulseAsync("Opening EBSO41 crontab…", 1200);
+            buttonCrontabA.Click += async (_, __) => await PulseAsync("Opening EBSA42 crontab…", 1200);
             buttonCrontabOXe1.Click += async (_, __) => await PulseAsync("Opening EBSO41Xe1 crontab…", 1200);
             buttonCrontabOXe2.Click += async (_, __) => await PulseAsync("Opening EBSO41Xe2 crontab…", 1200);
             buttonProcessEBSO.Click += async (_, __) => await PulseAsync("Reading EBSO processes…", 1200);
             buttonProcessEBSA.Click += async (_, __) => await PulseAsync("Reading EBSA processes…", 1200);
-            RefreshBtn.Click        += async (_, __) => await PulseAsync("Refreshing status…", 800);
+            RefreshBtn.Click += async (_, __) => await PulseAsync("Refreshing status…", 800);
         }
 
         /// Tiny, cancellable status pulse that reverts to the last stable text.
@@ -238,24 +233,24 @@ namespace BKGEBSInvestigation.WTUserController
             if (e == null) return;
             if (InvokeRequired) { BeginInvoke(new Action(() => ProgressEBSO_ProgressChanged(sender, e))); return; }
 
-            labelEBSOPathError.Text  = e.PathEBSOerrorlabel ?? string.Empty;
-            labelEBSOPathInput.Text  = e.PathEBSOinputlabel ?? string.Empty;
+            labelEBSOPathError.Text = e.PathEBSOerrorlabel ?? string.Empty;
+            labelEBSOPathInput.Text = e.PathEBSOinputlabel ?? string.Empty;
             labelEBSOPathInWork.Text = e.PathEBSOIn_worklabel ?? string.Empty;
-            labelEBSOPathPool.Text   = e.PathEBSOTranferPoollabel ?? string.Empty;
+            labelEBSOPathPool.Text = e.PathEBSOTranferPoollabel ?? string.Empty;
 
             SetCount(countEBSOTranferPoollabel, e.countEBSOTranferPoollabel);
-            SetCount(countEBSOerrorlabel,       e.countEBSOerrorlabel);
-            SetCount(countEBSOinputlabel,       e.countEBSOinputlabel);
-            SetCount(countEBSOIn_worklabel,     e.countEBSOIn_worklabel);
+            SetCount(countEBSOerrorlabel, e.countEBSOerrorlabel);
+            SetCount(countEBSOinputlabel, e.countEBSOinputlabel);
+            SetCount(countEBSOIn_worklabel, e.countEBSOIn_worklabel);
 
-            SetStatusLabel(labelStatusErrorEBSO,  e.EBSOerrorlabel);
-            SetStatusLabel(labelStatusInputEBSO,  e.EBSOinputlabel);
+            SetStatusLabel(labelStatusErrorEBSO, e.EBSOerrorlabel);
+            SetStatusLabel(labelStatusInputEBSO, e.EBSOinputlabel);
             SetStatusLabel(labelStatusInworkEBSO, e.EBSOIn_worklabel);
-            SetStatusLabel(labelPoolStatusEBSO,   e.EBSOTranferPoollabel);
+            SetStatusLabel(labelPoolStatusEBSO, e.EBSOTranferPoollabel);
 
-            UpdateCrontabUI(e.Exists,    e.Entries,    panelEBSOCrontab,    buttonCrontabO,    ref _listlineEBSO);
-            UpdateCrontabUI(e.Xe1Exists, e.Xe1Entries, panelEBSOXe1Crontab, buttonCrontabOXe1, ref _listlineEBSOXe1);
-            UpdateCrontabUI(e.Xe2Exists, e.Xe2Entries, panelEBSOXe2Crontab, buttonCrontabOXe2, ref _listlineEBSOXe2);
+            UpdateCrontabUI(e.Exists, e.Entries, panelEBSOCrontab, buttonCrontabO, ref _listlineEBSO, e.EBSOCrontabStatus, _badgeEBSO);
+            UpdateCrontabUI(e.Xe1Exists, e.Xe1Entries, panelEBSOXe1Crontab, buttonCrontabOXe1, ref _listlineEBSOXe1, e.EBSOXe1CrontabStatus, _badgeEBSOXe1);
+            UpdateCrontabUI(e.Xe2Exists, e.Xe2Entries, panelEBSOXe2Crontab, buttonCrontabOXe2, ref _listlineEBSOXe2, e.EBSOXe2CrontabStatus, _badgeEBSOXe2);
 
             UpdateStatus("EBSO status refreshed", persist: true);
         }
@@ -265,19 +260,19 @@ namespace BKGEBSInvestigation.WTUserController
             if (e == null) return;
             if (InvokeRequired) { BeginInvoke(new Action(() => ProgressEBSA_ProgressChanged(sender, e))); return; }
 
-            labelEBSAPathError.Text  = e.PathEBSAerrorlabel ?? string.Empty;
-            labelEBSAPathInput.Text  = e.PathEBSAinputlabel ?? string.Empty;
+            labelEBSAPathError.Text = e.PathEBSAerrorlabel ?? string.Empty;
+            labelEBSAPathInput.Text = e.PathEBSAinputlabel ?? string.Empty;
             labelEBSAPathInWork.Text = e.PathEBSAIn_worklabel ?? string.Empty;
 
-            SetCount(countEBSAerrorlabel,   e.countEBSAerrorlabel);
-            SetCount(countEBSAinputlabel,   e.countEBSAinputlabel);
+            SetCount(countEBSAerrorlabel, e.countEBSAerrorlabel);
+            SetCount(countEBSAinputlabel, e.countEBSAinputlabel);
             SetCount(countEBSAIn_worklabel, e.countEBSAIn_worklabel);
 
-            SetStatusLabel(labelStatusErrorEBSA,  e.EBSAerrorlabel);
-            SetStatusLabel(labelStatusInputEBSA,  e.EBSAinputlabel);
+            SetStatusLabel(labelStatusErrorEBSA, e.EBSAerrorlabel);
+            SetStatusLabel(labelStatusInputEBSA, e.EBSAinputlabel);
             SetStatusLabel(labelStatusInworkEBSA, e.EBSAIn_worklabel);
 
-            UpdateCrontabUI(e.Exists, e.Entries, panelEBSACrontab, buttonCrontabA, ref _listlineEBSA);
+            UpdateCrontabUI(e.Exists, e.Entries, panelEBSACrontab, buttonCrontabA, ref _listlineEBSA,e.EBSACrontabStatus,_badgeEBSA);
 
             UpdateStatus("EBSA status refreshed", persist: true);
         }
@@ -294,14 +289,27 @@ namespace BKGEBSInvestigation.WTUserController
                 : Color.Khaki;
         }
 
-        private static void UpdateCrontabUI(bool exists, List<string> entries, Panel panel, Button button, ref List<string> backingStore)
+        private static void UpdateCrontabUI(bool exists, List<string> entries, Panel panel, Button button, ref List<string> backingStore , string status , Label badge)
         {
             if (exists)
             {
-                panel.BackColor = Flat47Style.Surface; // subtle
-                button.Enabled = true;
-                Flat47Style.StyleButton(button);
-                backingStore = (entries != null && entries.Count > 0) ? new List<string>(entries) : new List<string>();
+                if(status == "Start checking Crontab")
+                {
+                    badge.ForeColor = Color.Yellow;
+                    panel.BackColor = Flat47Style.Surface; // subtle
+                    button.Enabled = true;
+                    Flat47Style.StyleButton(button);
+                    backingStore = (entries != null && entries.Count > 0) ? new List<string>(entries) : new List<string>();
+                }
+                else if (status == "Finished checking")
+                {
+                    badge.ForeColor = Color.Green;
+                    panel.BackColor = Flat47Style.Surface; // subtle
+                    button.Enabled = true;
+                    Flat47Style.StyleButton(button);
+                    backingStore = (entries != null && entries.Count > 0) ? new List<string>(entries) : new List<string>();
+                }
+
             }
             else
             {
@@ -324,8 +332,8 @@ namespace BKGEBSInvestigation.WTUserController
             await StartCheckingEngine();
         }
 
-        private void buttonCrontabO_Click(object sender, EventArgs e)    => ShowCrontab(_listlineEBSO,    "EBSO41");
-        private void buttonCrontabA_Click(object sender, EventArgs e)    => ShowCrontab(_listlineEBSA,    "EBSA42");
+        private void buttonCrontabO_Click(object sender, EventArgs e) => ShowCrontab(_listlineEBSO, "EBSO41");
+        private void buttonCrontabA_Click(object sender, EventArgs e) => ShowCrontab(_listlineEBSA, "EBSA42");
         private void buttonCrontabOXe1_Click(object sender, EventArgs e) => ShowCrontab(_listlineEBSOXe1, "EBSO41Xe1");
         private void buttonCrontabOXe2_Click(object sender, EventArgs e) => ShowCrontab(_listlineEBSOXe2, "EBSO41Xe2");
 
@@ -337,7 +345,7 @@ namespace BKGEBSInvestigation.WTUserController
                 StartProgress("Reading EBSO processes…");
                 var result = await _checkingStatusEngine.GetMultipleProcessEBSO().ConfigureAwait(true);
                 StopProgress("EBSO processes ready");
-                var form = new ProcessCheckingForm(result?.Results ?? new List<string>(), "process in EBS41");
+                var form = new ProcessCheckingForm(result.Results, "process in EBS41");
                 form.Show(this);
             }
             catch (Exception ex)
@@ -358,7 +366,7 @@ namespace BKGEBSInvestigation.WTUserController
                 StartProgress("Reading EBSA processes…");
                 var result = await _checkingStatusEngine.GetMultipleProcessEBSA().ConfigureAwait(true);
                 StopProgress("EBSA processes ready");
-                var form = new ProcessCheckingForm(result?.Results ?? new List<string>(), "process in EBS42");
+                var form = new ProcessCheckingForm(result.Results, "process in EBS42");
                 form.Show(this);
             }
             catch (Exception ex)
