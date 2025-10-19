@@ -1,0 +1,144 @@
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+
+namespace BKGEBSInvestigation.HelperClass
+{
+    public static class Flat47Style
+    {
+        // Core palette
+        public static readonly Color Background     = Color.FromArgb(47, 47, 47);
+        public static readonly Color Surface        = Color.FromArgb(38, 38, 38);
+        public static readonly Color SurfaceAlt     = Color.FromArgb(30, 30, 30);
+        public static readonly Color Border         = Color.FromArgb(72, 72, 72);
+        public static readonly Color TextPrimary    = Color.Gainsboro;
+        public static readonly Color TextMuted      = Color.Silver;
+        public static readonly Color Accent         = Color.FromArgb(118, 185, 0); // optional accent
+        public static readonly Color Danger         = Color.IndianRed;
+        public static readonly Color Warn           = Color.Khaki;
+
+        public static void ApplyToControlTree(Control root)
+        {
+            if (root == null) return;
+
+            root.BackColor = Background;
+            root.ForeColor = TextPrimary;
+
+            foreach (Control c in root.Controls)
+            {
+                ApplyToControlTree(c);
+            }
+
+            // Per-type refinements
+            if (root is Panel p)
+            {
+                p.BackColor = Surface;
+            }
+            else if (root is GroupBox g)
+            {
+                g.ForeColor = TextPrimary;
+                g.BackColor = Surface;
+            }
+            else if (root is Label l)
+            {
+                l.ForeColor = TextPrimary;
+                // leave BackColor transparent to parent by default
+            }
+            else if (root is TextBox tb)
+            {
+                tb.BorderStyle = BorderStyle.FixedSingle;
+                tb.BackColor = SurfaceAlt;
+                tb.ForeColor = TextPrimary;
+            }
+            else if (root is ComboBox cb)
+            {
+                cb.FlatStyle = FlatStyle.Flat;
+                cb.BackColor = SurfaceAlt;
+                cb.ForeColor = TextPrimary;
+            }
+            else if (root is ListBox lb)
+            {
+                lb.BackColor = SurfaceAlt;
+                lb.ForeColor = TextPrimary;
+            }
+            else if (root is Button btn)
+            {
+                StyleButton(btn);
+            }
+            else if (root is DataGridView dgv)
+            {
+                StyleDataGridView(dgv);
+            }
+            else if (root is StatusStrip ss)
+            {
+                StyleStatusStrip(ss);
+            }
+            else if (root is ToolStrip ts)
+            {
+                StyleToolStrip(ts);
+            }
+        }
+
+        public static void StyleButton(Button b)
+        {
+            b.FlatStyle = FlatStyle.Flat;
+            b.FlatAppearance.BorderColor = Border;
+            b.FlatAppearance.BorderSize = 1;
+            b.FlatAppearance.MouseOverBackColor = SurfaceAlt;
+            b.FlatAppearance.MouseDownBackColor = SurfaceAlt;
+            b.BackColor = Surface;
+            b.ForeColor = TextPrimary;
+            b.Cursor = Cursors.Hand;
+        }
+
+        public static void StyleStatusStrip(StatusStrip strip)
+        {
+            strip.BackColor = Surface;
+            strip.ForeColor = TextPrimary;
+            foreach (ToolStripItem item in strip.Items)
+            {
+                if (item is ToolStripStatusLabel lbl)
+                {
+                    lbl.ForeColor = TextPrimary;
+                }
+                else if (item is ToolStripControlHost host && host.Control != null)
+                {
+                    host.Control.BackColor = Surface;
+                    host.Control.ForeColor = TextPrimary;
+                }
+            }
+        }
+
+        public static void StyleToolStrip(ToolStrip ts)
+        {
+            ts.BackColor = Surface;
+            ts.ForeColor = TextPrimary;
+            foreach (ToolStripItem i in ts.Items)
+            {
+                i.ForeColor = TextPrimary;
+            }
+        }
+
+        public static void StyleDataGridView(DataGridView dgv)
+        {
+            dgv.BackgroundColor = Background;
+            dgv.BorderStyle = BorderStyle.None;
+            dgv.EnableHeadersVisualStyles = false;
+
+            dgv.ColumnHeadersDefaultCellStyle.BackColor = SurfaceAlt;
+            dgv.ColumnHeadersDefaultCellStyle.ForeColor = TextPrimary;
+            dgv.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
+
+            dgv.DefaultCellStyle.BackColor = Surface;
+            dgv.DefaultCellStyle.ForeColor = TextPrimary;
+            dgv.DefaultCellStyle.SelectionBackColor = Color.FromArgb(64, 64, 64);
+            dgv.DefaultCellStyle.SelectionForeColor = TextPrimary;
+
+            dgv.AlternatingRowsDefaultCellStyle.BackColor = SurfaceAlt;
+            dgv.GridColor = Border;
+
+            dgv.RowHeadersVisible = false;
+            dgv.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+        }
+    }
+}
