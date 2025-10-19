@@ -1,0 +1,79 @@
+private void UpdateCrontabUI(
+    bool exists,
+    List<string> entries,
+    Panel panel,
+    Button button,
+    ref List<string> backingStore,
+    string status,
+    Label badge)
+{
+    entries ??= new List<string>();
+    backingStore = exists ? new List<string>(entries) : new List<string>();
+
+    // Base panel & button state
+    panel.BackColor = exists ? Flat47Style.Surface : Flat47Style.SurfaceAlt;
+    button.Enabled  = exists;
+    if (exists) Flat47Style.StyleButton(button);
+
+    // Normalize status (avoid magic-string issues)
+    string norm = (status ?? "").Trim().ToLowerInvariant();
+
+    // Badge style presets (flat, no rounded corners)
+    void SetBadge(string text, Color back, Color fore)
+    {
+        if (badge == null) return;
+        badge.Text = text;
+        badge.BackColor = back;
+        badge.ForeColor = fore;
+        badge.BorderStyle = BorderStyle.FixedSingle;
+        // keep width if text is short, but allow grow for longer
+        var wanted = TextRenderer.MeasureText(text, badge.Font);
+        badge.Width = Math.Max(64, Math.Min(140, wanted.Width + 16));
+        // reposition after width change
+        badge.Location = new Point(panel.Width - badge.Width - 6, 6);
+    }
+
+    // Decide badge content
+    if (!exists)
+    {
+        SetBadge("missing", Color.FromArgb(90, 40, 40), Color.White);
+    }
+    else if (norm.Contains("start") && norm.Contains("crontab"))
+    {
+        // “Start checking Crontab”
+        SetBadge("checking…", Color.FromArgb(90, 90, 30), Color.Black);
+    }
+    else if (norm.Contains("finished"))
+    {
+        // “Finished checking”
+        var c = entries.Count;
+        SetBadge($"{c} job{(c == 1 ? "" : "s")}", Color.FromArgb(40, 80, 40), Color.White);
+    }
+    else
+    {
+        // fallback when status is unknown
+        var c = entries.Count;
+        SetBadge(c > 0 ? $"{c} jobs" : "ready", Flat47Style.SurfaceAlt, Flat47Style.TextPrimary);
+    }
+
+    // Rich tooltip (first 3 lines + “+N more”)
+    string summary = BuildCrontabSummary(button.Text?.Trim().Length > 0 ? button.Text : "Crontab",
+                                         exists, entries);
+    _tip.SetToolTip(panel, summary);
+    _tip.SetToolTip(button, summary);
+    if (badge != null) _tip.SetToolTip(badge, summary);
+}
+
+private static string BuildCrontabSummary(string name, bool exists, List<string> entries)
+{
+    name = string.IsNullOrWhiteSpace(name) ? "Crontab" : name;
+    if (!exists) return $"{name}: crontab not found or unreadable.";
+
+    int n = entries?.Count ?? 0;
+    if (n == 0) return $"{name}: crontab available, but no jobs found.";
+
+    int k = Math.Min(3, n);
+    var preview = string.Join("\n• ", entries.GetRange(0, k));
+    var more = n > k ? $"\n(+{n - k} more…)" : "";
+    return $"{name}: {n} job{(n == 1 ? "" : "s")}\n• {preview}{more}";
+}
