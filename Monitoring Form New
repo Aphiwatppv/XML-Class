@@ -1,0 +1,376 @@
+using BKGEBSInvestigation.HelperClass;
+using BKGEBSInvestigation.WTForm;
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace BKGEBSInvestigation.WTUserController
+{
+    public partial class CheckStatusController : UserControl
+    {
+        // External engines
+        private SudoLister.EngineSudo.SudoLister _sudoListerEBSO;
+        private SudoLister.EngineSudo.SudoLister _sudoListerEBSA;
+
+        // Progress channels
+        private readonly Progress<ReportStatusEBSAProgress> _progressEBSA;
+        private readonly Progress<ReportStatusEBSOProgress> _progressEBSO;
+
+        // Core engine + config
+        private readonly ICheckingStatusEngine _checkingStatusEngine;
+        private readonly XmlConfigManager _xmlConfigManager;
+
+        // Cached crontab lines
+        private List<string> _listlineEBSO    = new List<string>();
+        private List<string> _listlineEBSA    = new List<string>();
+        private List<string> _listlineEBSOXe1 = new List<string>();
+        private List<string> _listlineEBSOXe2 = new List<string>();
+
+        // Bottom StatusStrip
+        private StatusStrip _statusStrip;
+        private ToolStripStatusLabel _statusText;
+        private ToolStripStatusLabel _statusSpacer;
+        private ToolStripProgressBar _statusProgress;
+
+        // Status pulse state
+        private string _lastStableStatus = "Ready";
+        private CancellationTokenSource _pulseCts;
+
+        public CheckStatusController() : this(null, null) { }
+
+        public CheckStatusController(XmlConfigManager xmlConfigManager, ICheckingStatusEngine engine)
+        {
+            InitializeComponent();
+
+            // Progress channels on UI thread
+            _progressEBSA = new Progress<ReportStatusEBSAProgress>();
+            _progressEBSO = new Progress<ReportStatusEBSOProgress>();
+            _progressEBSA.ProgressChanged += ProgressEBSA_ProgressChanged;
+            _progressEBSO.ProgressChanged += ProgressEBSO_ProgressChanged;
+
+            _xmlConfigManager = xmlConfigManager ?? new XmlConfigManager();
+            _checkingStatusEngine = engine ?? new CheckingStatusEngine(_progressEBSA, _progressEBSO, _xmlConfigManager);
+
+            // Build status UI and apply style
+            BuildStatusUI();
+            Flat47Style.ApplyToControlTree(this);        // <— apply flat (47,47,47) theme
+            Flat47Style.StyleStatusStrip(_statusStrip);  // ensure strip matches
+
+            // Initial UI state
+            buttonCrontabA.Enabled = false;
+            buttonCrontabO.Enabled = false;
+            buttonCrontabOXe1.Enabled = false;
+            buttonCrontabOXe2.Enabled = false;
+
+            StopProgress("Ready");
+
+            // Add status pulses on hover/click
+            WireStatusPulses();
+
+            // Kick off initial run
+            _ = StartCheckingEngine();
+        }
+
+        // ----------------------- Style + StatusStrip -------------------------
+        private void BuildStatusUI()
+        {
+            _statusStrip = new StatusStrip
+            {
+                SizingGrip = false,
+                Dock = DockStyle.Bottom,
+                BackColor = Color.FromArgb(25, 25, 25),
+                ForeColor = Color.Gainsboro,
+                RenderMode = ToolStripRenderMode.System
+            };
+
+            _statusText = new ToolStripStatusLabel("Ready")
+            {
+                Spring = false,
+                ForeColor = Color.Gainsboro
+            };
+
+            _statusSpacer = new ToolStripStatusLabel { Spring = true, Text = string.Empty };
+
+            _statusProgress = new ToolStripProgressBar
+            {
+                Visible = false,
+                Minimum = 0,
+                Maximum = 100,
+                Value = 0,
+                Style = ProgressBarStyle.Continuous,
+                AutoSize = false,
+                Width = 160
+            };
+
+            _statusStrip.Items.Add(_statusText);
+            _statusStrip.Items.Add(_statusSpacer);
+            _statusStrip.Items.Add(new ToolStripControlHost(new Panel { Width = 4 }));
+            _statusStrip.Items.Add(_statusProgress);
+
+            Controls.Add(_statusStrip);
+            _statusStrip.BringToFront();
+        }
+
+        private void UpdateStatus(string text, bool isError = false, bool persist = true)
+        {
+            if (InvokeRequired) { BeginInvoke(new Action(() => UpdateStatus(text, isError, persist))); return; }
+            _statusText.Text = text ?? string.Empty;
+            _statusText.ForeColor = isError ? Color.IndianRed : Flat47Style.TextPrimary;
+            if (!isError && persist) _lastStableStatus = _statusText.Text;
+        }
+
+        private void StartProgress(string text = "Working…", bool marquee = true)
+        {
+            if (InvokeRequired) { BeginInvoke(new Action(() => StartProgress(text, marquee))); return; }
+            UpdateStatus(text, false, persist: true);
+            _statusProgress.Visible = true;
+            _statusProgress.Value = 0;
+            _statusProgress.Style = marquee ? ProgressBarStyle.Marquee : ProgressBarStyle.Continuous;
+            _statusProgress.MarqueeAnimationSpeed = marquee ? 30 : 0;
+        }
+
+        private void ReportProgress(int percent, string text = null)
+        {
+            if (InvokeRequired) { BeginInvoke(new Action(() => ReportProgress(percent, text))); return; }
+            if (text != null) UpdateStatus(text, false, persist: true);
+            if (_statusProgress.Style != ProgressBarStyle.Continuous)
+            {
+                _statusProgress.Style = ProgressBarStyle.Continuous;
+                _statusProgress.MarqueeAnimationSpeed = 0;
+            }
+            _statusProgress.Visible = true;
+            _statusProgress.Value = Math.Max(_statusProgress.Minimum, Math.Min(percent, _statusProgress.Maximum));
+        }
+
+        private void StopProgress(string text = "Ready")
+        {
+            if (InvokeRequired) { BeginInvoke(new Action(() => StopProgress(text))); return; }
+            _statusProgress.Visible = false;
+            _statusProgress.MarqueeAnimationSpeed = 0;
+            UpdateStatus(text, false, persist: true);
+        }
+
+        private void ShowError(string msg)
+        {
+            UpdateStatus(msg, isError: true, persist: false); // don't store errors as stable
+            MessageBox.Show(this, msg, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+
+        private void SetBusy(bool busy)
+        {
+            Cursor = busy ? Cursors.WaitCursor : Cursors.Default;
+            RefreshBtn.Enabled = !busy;
+            buttonProcessEBSO.Enabled = !busy;
+            buttonProcessEBSA.Enabled = !busy;
+
+            if (busy) StartProgress("Running…", marquee: true);
+            else StopProgress("Ready");
+        }
+
+        // ----------------------------- Pulse ---------------------------------
+        private void WireStatusPulses()
+        {
+            // Hover pulses (preview actions)
+            buttonCrontabO.MouseEnter     += (_, __) => _ = PulseAsync("Open EBSO41 crontab…");
+            buttonCrontabA.MouseEnter     += (_, __) => _ = PulseAsync("Open EBSA42 crontab…");
+            buttonCrontabOXe1.MouseEnter  += (_, __) => _ = PulseAsync("Open EBSO41Xe1 crontab…");
+            buttonCrontabOXe2.MouseEnter  += (_, __) => _ = PulseAsync("Open EBSO41Xe2 crontab…");
+            buttonProcessEBSO.MouseEnter  += (_, __) => _ = PulseAsync("View processes in EBS41…");
+            buttonProcessEBSA.MouseEnter  += (_, __) => _ = PulseAsync("View processes in EBS42…");
+            RefreshBtn.MouseEnter         += (_, __) => _ = PulseAsync("Refresh system status…");
+
+            // Click pulses (affirm actions)
+            buttonCrontabO.Click    += async (_, __) => await PulseAsync("Opening EBSO41 crontab…", 1200);
+            buttonCrontabA.Click    += async (_, __) => await PulseAsync("Opening EBSA42 crontab…", 1200);
+            buttonCrontabOXe1.Click += async (_, __) => await PulseAsync("Opening EBSO41Xe1 crontab…", 1200);
+            buttonCrontabOXe2.Click += async (_, __) => await PulseAsync("Opening EBSO41Xe2 crontab…", 1200);
+            buttonProcessEBSO.Click += async (_, __) => await PulseAsync("Reading EBSO processes…", 1200);
+            buttonProcessEBSA.Click += async (_, __) => await PulseAsync("Reading EBSA processes…", 1200);
+            RefreshBtn.Click        += async (_, __) => await PulseAsync("Refreshing status…", 800);
+        }
+
+        /// Tiny, cancellable status pulse that reverts to the last stable text.
+        private async Task PulseAsync(string message, int durationMs = 800)
+        {
+            try
+            {
+                _pulseCts?.Cancel();
+                _pulseCts = new CancellationTokenSource();
+
+                UpdateStatus(message, isError: false, persist: false);
+                await Task.Delay(durationMs, _pulseCts.Token);
+
+                // revert to last stable if nothing else changed
+                UpdateStatus(_lastStableStatus, isError: false, persist: false);
+            }
+            catch (TaskCanceledException)
+            {
+                // another pulse superseded this one — ignore
+            }
+        }
+
+        // --------------------------- Engine ----------------------------------
+        public async Task StartCheckingEngine()
+        {
+            try
+            {
+                SetBusy(true);
+                StartProgress("Checking system status…", marquee: true);
+                await _checkingStatusEngine.StartEngine().ConfigureAwait(true);
+                StopProgress("Status updated");
+            }
+            catch (Exception ex)
+            {
+                ShowError("Engine error: " + ex.Message);
+            }
+            finally
+            {
+                SetBusy(false);
+            }
+        }
+
+        // ----------------------- Progress Handlers ---------------------------
+        private void ProgressEBSO_ProgressChanged(object sender, ReportStatusEBSOProgress e)
+        {
+            if (e == null) return;
+            if (InvokeRequired) { BeginInvoke(new Action(() => ProgressEBSO_ProgressChanged(sender, e))); return; }
+
+            labelEBSOPathError.Text  = e.PathEBSOerrorlabel ?? string.Empty;
+            labelEBSOPathInput.Text  = e.PathEBSOinputlabel ?? string.Empty;
+            labelEBSOPathInWork.Text = e.PathEBSOIn_worklabel ?? string.Empty;
+            labelEBSOPathPool.Text   = e.PathEBSOTranferPoollabel ?? string.Empty;
+
+            SetCount(countEBSOTranferPoollabel, e.countEBSOTranferPoollabel);
+            SetCount(countEBSOerrorlabel,       e.countEBSOerrorlabel);
+            SetCount(countEBSOinputlabel,       e.countEBSOinputlabel);
+            SetCount(countEBSOIn_worklabel,     e.countEBSOIn_worklabel);
+
+            SetStatusLabel(labelStatusErrorEBSO,  e.EBSOerrorlabel);
+            SetStatusLabel(labelStatusInputEBSO,  e.EBSOinputlabel);
+            SetStatusLabel(labelStatusInworkEBSO, e.EBSOIn_worklabel);
+            SetStatusLabel(labelPoolStatusEBSO,   e.EBSOTranferPoollabel);
+
+            UpdateCrontabUI(e.Exists,    e.Entries,    panelEBSOCrontab,    buttonCrontabO,    ref _listlineEBSO);
+            UpdateCrontabUI(e.Xe1Exists, e.Xe1Entries, panelEBSOXe1Crontab, buttonCrontabOXe1, ref _listlineEBSOXe1);
+            UpdateCrontabUI(e.Xe2Exists, e.Xe2Entries, panelEBSOXe2Crontab, buttonCrontabOXe2, ref _listlineEBSOXe2);
+
+            UpdateStatus("EBSO status refreshed", persist: true);
+        }
+
+        private void ProgressEBSA_ProgressChanged(object sender, ReportStatusEBSAProgress e)
+        {
+            if (e == null) return;
+            if (InvokeRequired) { BeginInvoke(new Action(() => ProgressEBSA_ProgressChanged(sender, e))); return; }
+
+            labelEBSAPathError.Text  = e.PathEBSAerrorlabel ?? string.Empty;
+            labelEBSAPathInput.Text  = e.PathEBSAinputlabel ?? string.Empty;
+            labelEBSAPathInWork.Text = e.PathEBSAIn_worklabel ?? string.Empty;
+
+            SetCount(countEBSAerrorlabel,   e.countEBSAerrorlabel);
+            SetCount(countEBSAinputlabel,   e.countEBSAinputlabel);
+            SetCount(countEBSAIn_worklabel, e.countEBSAIn_worklabel);
+
+            SetStatusLabel(labelStatusErrorEBSA,  e.EBSAerrorlabel);
+            SetStatusLabel(labelStatusInputEBSA,  e.EBSAinputlabel);
+            SetStatusLabel(labelStatusInworkEBSA, e.EBSAIn_worklabel);
+
+            UpdateCrontabUI(e.Exists, e.Entries, panelEBSACrontab, buttonCrontabA, ref _listlineEBSA);
+
+            UpdateStatus("EBSA status refreshed", persist: true);
+        }
+
+        // ----------------------------- UI Utils ------------------------------
+        private static void SetCount(Label label, int value) => label.Text = $"{value} files";
+
+        private static void SetStatusLabel(Label label, string status)
+        {
+            status ??= string.Empty;
+            label.Text = status;
+            label.ForeColor = string.Equals(status, "Finished...", StringComparison.OrdinalIgnoreCase)
+                ? Color.Green
+                : Color.Khaki;
+        }
+
+        private static void UpdateCrontabUI(bool exists, List<string> entries, Panel panel, Button button, ref List<string> backingStore)
+        {
+            if (exists)
+            {
+                panel.BackColor = Flat47Style.Surface; // subtle
+                button.Enabled = true;
+                Flat47Style.StyleButton(button);
+                backingStore = (entries != null && entries.Count > 0) ? new List<string>(entries) : new List<string>();
+            }
+            else
+            {
+                panel.BackColor = Flat47Style.SurfaceAlt;
+                button.Enabled = false;
+                backingStore = new List<string>();
+            }
+        }
+
+        private void ShowCrontab(List<string> lines, string title)
+        {
+            var list = lines ?? new List<string>();
+            var form = new CrontabForm(list, title);
+            form.Show(this);
+        }
+
+        // ----------------------------- Events --------------------------------
+        private async void RefreshBtn_Click(object sender, EventArgs e)
+        {
+            await StartCheckingEngine();
+        }
+
+        private void buttonCrontabO_Click(object sender, EventArgs e)    => ShowCrontab(_listlineEBSO,    "EBSO41");
+        private void buttonCrontabA_Click(object sender, EventArgs e)    => ShowCrontab(_listlineEBSA,    "EBSA42");
+        private void buttonCrontabOXe1_Click(object sender, EventArgs e) => ShowCrontab(_listlineEBSOXe1, "EBSO41Xe1");
+        private void buttonCrontabOXe2_Click(object sender, EventArgs e) => ShowCrontab(_listlineEBSOXe2, "EBSO41Xe2");
+
+        private async void buttonProcessEBSO_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                SetBusy(true);
+                StartProgress("Reading EBSO processes…");
+                var result = await _checkingStatusEngine.GetMultipleProcessEBSO().ConfigureAwait(true);
+                StopProgress("EBSO processes ready");
+                var form = new ProcessCheckingForm(result?.Results ?? new List<string>(), "process in EBS41");
+                form.Show(this);
+            }
+            catch (Exception ex)
+            {
+                ShowError("Failed to read EBSO processes: " + ex.Message);
+            }
+            finally
+            {
+                SetBusy(false);
+            }
+        }
+
+        private async void buttonProcessEBSA_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                SetBusy(true);
+                StartProgress("Reading EBSA processes…");
+                var result = await _checkingStatusEngine.GetMultipleProcessEBSA().ConfigureAwait(true);
+                StopProgress("EBSA processes ready");
+                var form = new ProcessCheckingForm(result?.Results ?? new List<string>(), "process in EBS42");
+                form.Show(this);
+            }
+            catch (Exception ex)
+            {
+                ShowError("Failed to read EBSA processes: " + ex.Message);
+            }
+            finally
+            {
+                SetBusy(false);
+            }
+        }
+
+        private void countEBSOerrorlabel_Click(object sender, EventArgs e) { /* no-op */ }
+    }
+}
