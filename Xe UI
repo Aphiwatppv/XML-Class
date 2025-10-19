@@ -254,3 +254,114 @@ public sealed class XeDetailForm : Form
         public string CLNT_COMMUNICATION_ID { get; }
     }
 }
+public sealed class XeDetailForm : Form
+{
+    private readonly XeExtractionRecord _rec;
+
+    public XeDetailForm(XeExtractionRecord rec)
+    {
+        _rec = rec ?? throw new ArgumentNullException(nameof(rec));
+        Text = $"XE Detail — {_rec.XE_NAME} ({_rec.XE_ID})";
+        Width = 1000;
+        Height = 700;
+        BackColor = Color.White;
+        FormBorderStyle = FormBorderStyle.Sizable;
+
+        // --- Left: PropertyGrid showing record info ---
+        var meta = new PropertyGrid
+        {
+            Dock = DockStyle.Left,
+            Width = 400,
+            HelpVisible = false,
+            ToolbarVisible = false,
+            PropertySort = PropertySort.NoSort,
+            SelectedObject = new MetaView(_rec)
+        };
+
+        // --- Right: XE_EDL viewer in cmd-style ---
+        var edlBox = new RichTextBox
+        {
+            Dock = DockStyle.Fill,
+            ReadOnly = true,
+            WordWrap = false,
+            BorderStyle = BorderStyle.None,
+            BackColor = Color.Black,
+            ForeColor = Color.Lime,
+            Font = new Font("Consolas", 10.5f, FontStyle.Regular),
+            DetectUrls = false,
+            HideSelection = false,
+            ScrollBars = RichTextBoxScrollBars.Both,
+            Text = string.IsNullOrEmpty(_rec.XE_EDL) ? "<empty>" : _rec.XE_EDL
+        };
+
+        var copyBtn = new Button
+        {
+            Text = "Copy XE_EDL",
+            Dock = DockStyle.Top,
+            Height = 34,
+            FlatStyle = FlatStyle.Flat
+        };
+        copyBtn.FlatAppearance.BorderSize = 0;
+        copyBtn.Click += (_, __) =>
+        {
+            try { Clipboard.SetText(edlBox.Text ?? ""); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "Copy Failed",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        };
+
+        var rightPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8) };
+        rightPanel.Controls.Add(edlBox);
+        rightPanel.Controls.Add(copyBtn);
+
+        var split = new SplitContainer
+        {
+            Dock = DockStyle.Fill,
+            FixedPanel = FixedPanel.Panel1,
+            SplitterDistance = meta.Width
+        };
+        split.Panel1.Controls.Add(meta);
+        split.Panel2.Controls.Add(rightPanel);
+
+        Controls.Add(split);
+    }
+
+    // --- MetaView defines which fields show in PropertyGrid ---
+    private sealed class MetaView
+    {
+        public MetaView(XeExtractionRecord r)
+        {
+            XE_ID = r.XE_ID;
+            XE_NAME = r.XE_NAME;
+            XE_PID = r.XE_PID;
+            XE_CREATE = r.XE_CREATE;
+            XE_START = r.XE_START;
+            XE_END = r.XE_END;
+            XE_STATUS = r.XE_STATUS;
+            XE_PROGRESS = r.XE_PROGRESS;
+            XE_STATUS_DESC = r.XE_STATUS_DESC;
+            XE_OWNER = r.XE_OWNER;
+            XE_TYPE = r.XE_TYPE;
+            XE_DELIVTYPE = r.XE_DELIVTYPE;
+            CLNT_COMMUNICATION_ID = r.CLNT_COMMUNICATION_ID;
+        }
+
+        // Displayed on the left side
+        public long XE_ID { get; }
+        public string XE_NAME { get; }
+        public long? XE_PID { get; }
+        public DateTime? XE_CREATE { get; }
+        public DateTime? XE_START { get; }
+        public DateTime? XE_END { get; }
+        public int? XE_STATUS { get; }
+        public int? XE_PROGRESS { get; }
+        public string XE_STATUS_DESC { get; }
+        public string XE_OWNER { get; }
+        public int? XE_TYPE { get; }
+        public int? XE_DELIVTYPE { get; }
+        public string CLNT_COMMUNICATION_ID { get; }
+    }
+}
+
