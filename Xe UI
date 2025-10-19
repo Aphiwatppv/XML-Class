@@ -1,0 +1,61 @@
+ private async void btnEBSoXe1_Click(object sender, EventArgs e) // from my main form
+ {
+     try
+     {
+         SetBusyUI(true);
+         StartProgress("Checking Xe1…");
+         var lotId = NormalizeLotId(textBoxLotId.Text);
+         var xe1 = await _engine.EngineGetXe1XeExtractionSummary(lotId).ConfigureAwait(true);
+         StopProgress($"Xe1 for {lotId}");
+         var dlg = new XeForm(xe1, $"Xe1 for {lotId} lot in EBSO");
+         dlg.Show(this);
+     }
+     catch (Exception ex)
+     {
+         UpdateStatus($"Xe1 EBSO check failed: {ex.Message}", isError: true);
+         _logSystem.Error("btnEBSoXe1_Click failed: " + ex);
+         MessageBox.Show(this, "Failed to load Xe1 records.\n" + ex.Message, "Error",
+             MessageBoxButtons.OK, MessageBoxIcon.Error);
+     }
+     finally
+     {
+         SetBusyUI(false);
+     }
+ }
+
+    public sealed class XeExtractionSummary
+    {
+        public long XE_ID { get; init; }
+        public string XE_NAME { get; init; } = "";
+        public long? XE_PID { get; init; }
+        public DateTime? XE_CREATE { get; init; }
+        public DateTime? XE_START { get; init; }
+        public DateTime? XE_END { get; init; }
+        public int? XE_PROGRESS { get; init; }
+        public string XE_STATUS_DESC { get; init; } = "";
+    }
+
+
+
+namespace BKGEBSInvestigation.WTForm
+{
+    public partial class XeForm : Form
+    {
+        public XeForm(IReadOnlyCollection<XeExtractionSummary> _xeExtractionRecord , string _name)
+        {
+            InitializeComponent();
+            this.Text = _name;
+            InitialSetupUI(_xeExtractionRecord);
+
+        }
+
+        private void InitialSetupUI(IReadOnlyCollection<XeExtractionSummary> _xeExtractionRecord)
+        {
+            InitializeSyle.InitializeDataGridView(dataGridView1);
+            dataGridView1.DataSource = _xeExtractionRecord;
+        }
+
+
+       
+    }
+}
