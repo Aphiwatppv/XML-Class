@@ -1,89 +1,233 @@
+using System;
+using System.Configuration;
+using System.Drawing;
+using System.Security;
+using System.Windows.Forms;
 using BKGEBSInvestigation.InvestigationServicesUserController;
 using BKGEBSInvestigation.WTUserController;
+using BKGEBSInvestigation.HelperClass;     // Flat47Style + FormDragController
 using SudoLister.Model;
 
 namespace BKGEBSInvestigation
 {
-    public partial class BKGWTInvestigation
-        : Form
+    public partial class BKGWTInvestigation : Form
     {
-        private FormDragController dragger;
-        SudoLister.EngineSudo.SudoLister _sudoLister;
-        private WTUserController.CheckStatusController _checkStatusController;
-        private WTInvestigationController wTInvestigationController;
+        // Drag helper
+        private FormDragController _dragger;
+
+        // Remote helper(s)
+        private SudoLister.EngineSudo.SudoLister _sudoLister;
+
+        // Cached pages
+        private CheckStatusController _checkStatusController;
+        private WTInvestigationController _investigationController;
+
         public BKGWTInvestigation()
         {
             InitializeComponent();
-            initialCall();
-            initialDragger();
 
+            // Optional: make WinForms feel smoother
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+            UpdateStyles();
 
+            // Theme (flat 47/47/47)
+            TryApplyFlatTheme();
+
+            // Init services & dragger
+            InitializeRemote();
+            InitializeDragger();
+
+            // Keyboard shortcuts
+            RegisterHotkeys();
         }
-        private void ToggleUserControl(UserControl userControl)
+
+        // ----------------------- THEME ---------------------------------------
+        private void TryApplyFlatTheme()
         {
-            // Check if the control to toggle is already displayed
-            if (!panelMain.Controls.Contains(userControl))
+            try
             {
-                // The control is not displayed, so display it.
+                // If you don’t want to theme the whole form, comment this out
+                Flat47Style.ApplyToControlTree(this);
+            }
+            catch { /* best effort */ }
+        }
+
+        // ----------------------- REMOTE --------------------------------------
+        private void InitializeRemote()
+        {
+            // Pull sensitive values from app.config (recommended)
+            // <appSettings>
+            //   <add key="SSH.Hostname" value="..." />
+            //   <add key="SSH.Username" value="..." />
+            //   <add key="SSH.Password" value="..." />   <-- or use a vault
+            //   <add key="SSH.SudoRequireTty" value="false" />
+            //   <add key="SSH.SudoUser" value="ebsdba" />
+            // </appSettings>
+
+            string host = ConfigurationManager.AppSettings["SSH.Hostname"] ?? "127.0.0.1";
+            string user = ConfigurationManager.AppSettings["SSH.Username"] ?? "user";
+            string pass = ConfigurationManager.AppSettings["SSH.Password"] ?? "";
+            bool.TryParse(ConfigurationManager.AppSettings["SSH.SudoRequireTty"], out bool requireTty);
+            string sudoUser = ConfigurationManager.AppSettings["SSH.SudoUser"] ?? "ebsdba";
+
+            var auth = new SSHAuth
+            {
+                Hostname = host,
+                Username = user,
+                Password = pass,              // Prefer: secure storage / KeyChain / DPAPI
+                SudoRequireTty = requireTty,
+            };
+
+            try
+            {
+                _sudoLister = new SudoLister.EngineSudo.SudoLister(auth, sudoUser);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this,
+                    "Failed to initialize remote session.\n" + ex.Message,
+                    "Remote Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        // ----------------------- DRAGGER -------------------------------------
+        private void InitializeDragger()
+        {
+            try
+            {
+                _dragger = new FormDragController(components) { TargetForm = this };
+
+                // Attach to your draggable chrome
+                SafeAttachDrag(panelMain);
+                SafeAttachDrag(sidePanel);
+                SafeAttachDrag(TopPanel);
+            }
+            catch { /* non-fatal */ }
+        }
+
+        private void SafeAttachDrag(Control c)
+        {
+            if (c != null) _dragger.Attach(c);
+        }
+
+        // ----------------------- CONTROL SWITCHING ---------------------------
+        private void ShowControl(UserControl control)
+        {
+            if (control == null) return;
+
+            panelMain.SuspendLayout();
+
+            // Ensure it’s only added once
+            if (!panelMain.Controls.Contains(control))
+            {
+                control.Dock = DockStyle.Fill;
                 panelMain.Controls.Clear();
-                userControl.Dock = DockStyle.Fill;
-                panelMain.Controls.Add(userControl);
+                panelMain.Controls.Add(control);
             }
             else
             {
-
-                userControl.Visible = !userControl.Visible;
+                // Already in panel — just surface it
+                foreach (Control c in panelMain.Controls) c.Visible = false;
+                control.Visible = true;
+                control.BringToFront();
             }
+
+            panelMain.ResumeLayout(performLayout: true);
         }
 
-
-
-        private void initialCall()
-        {
-
-            SSHAuth sSHAuth = new SSHAuth
-            {
-                Hostname = "xxxx",
-                Username = "xxxx",
-                Password = "xxxx",
-                SudoRequireTty = xxxx,
-
-
-            };
-
-            _sudoLister = new SudoLister.EngineSudo.SudoLister(sSHAuth, "ebsdba");
-        }
-
-
-
-        private void initialDragger()
-        {
-            dragger = new FormDragController(components) { TargetForm = this };
-            dragger.Attach(panelMain);
-            dragger.Attach(sidePanel);
-            dragger.Attach(TopPanel);
-        }
-
-
-        private void TopExitBtn_Click(object sender, EventArgs e) => Application.Exit();
-        private void TopMinimizeBtn_Click(object sender, EventArgs e) => this.WindowState = FormWindowState.Minimized;
-
-        private void CheckStatusbtn_Click(object sender, EventArgs e)
+        private CheckStatusController GetOrCreateCheckStatusPage()
         {
             if (_checkStatusController == null || _checkStatusController.IsDisposed)
             {
-                _checkStatusController = new WTUserController.CheckStatusController();
+                try
+                {
+                    _checkStatusController = new CheckStatusController();
+                    // Optional: page-level theming
+                    Flat47Style.ApplyToControlTree(_checkStatusController);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this,
+                        "Failed to create Check Status page.\n" + ex.Message,
+                        "UI Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
-            ToggleUserControl(_checkStatusController);
+            return _checkStatusController;
+        }
+
+        private WTInvestigationController GetOrCreateInvestigationPage()
+        {
+            if (_investigationController == null || _investigationController.IsDisposed)
+            {
+                try
+                {
+                    _investigationController = new WTInvestigationController();
+                    Flat47Style.ApplyToControlTree(_investigationController);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this,
+                        "Failed to create Investigation page.\n" + ex.Message,
+                        "UI Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            return _investigationController;
+        }
+
+        // ----------------------- HOTKEYS -------------------------------------
+        private void RegisterHotkeys()
+        {
+            // Hook at form level
+            this.KeyPreview = true;
+            this.KeyDown += (s, e) =>
+            {
+                if (e.Control && e.KeyCode == Keys.D1)
+                {
+                    CheckStatusbtn_Click(s, EventArgs.Empty);
+                    e.Handled = true;
+                }
+                else if (e.Control && e.KeyCode == Keys.D2)
+                {
+                    buttonInvestigation_Click(s, EventArgs.Empty);
+                    e.Handled = true;
+                }
+            };
+        }
+
+        // ----------------------- EVENTS / COMMANDS ---------------------------
+        private void TopExitBtn_Click(object sender, EventArgs e) => Application.Exit();
+
+        private void TopMinimizeBtn_Click(object sender, EventArgs e) => WindowState = FormWindowState.Minimized;
+
+        private void CheckStatusbtn_Click(object sender, EventArgs e)
+        {
+            var page = GetOrCreateCheckStatusPage();
+            ShowControl(page);
         }
 
         private void buttonInvestigation_Click(object sender, EventArgs e)
         {
-            if (wTInvestigationController == null || wTInvestigationController.IsDisposed)
+            var page = GetOrCreateInvestigationPage();
+            ShowControl(page);
+        }
+
+        // ----------------------- CLEANUP -------------------------------------
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            base.OnFormClosing(e);
+
+            try
             {
-                wTInvestigationController = new WTInvestigationController();
+                if (_checkStatusController != null && !_checkStatusController.IsDisposed)
+                    _checkStatusController.Dispose();
+
+                if (_investigationController != null && !_investigationController.IsDisposed)
+                    _investigationController.Dispose();
+
+                _sudoLister?.Dispose();
+                _dragger?.Dispose();
             }
-            ToggleUserControl(wTInvestigationController);
+            catch { /* suppress cleanup issues */ }
         }
     }
 }
