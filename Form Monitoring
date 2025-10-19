@@ -1,0 +1,200 @@
+using BKGEBSInvestigation.HelperClass;
+using BKGEBSInvestigation.WTForm;
+
+namespace BKGEBSInvestigation.WTUserController
+{
+    public partial class CheckStatusController : UserControl
+    {
+
+        SudoLister.EngineSudo.SudoLister _sudoListerEBSO;
+        SudoLister.EngineSudo.SudoLister _sudoListerEBSA;
+
+
+        Progress<ReportStatusEBSAProgress> progressEBSA;
+        Progress<ReportStatusEBSOProgress> progressEBSO;
+
+        ICheckingStatusEngine _checkingStatusEngine;
+        XmlConfigManager xmlConfigManager;
+
+        List<string> _listlineEBSO;
+        List<string> _listlineEBSA;
+
+        List<string> _listlineEBSOXe1;
+        List<string> _listlineEBSOXe2;
+        public CheckStatusController()
+        {
+            InitializeComponent();
+            InitialSetupProgress();
+            StartCheckingEngine();
+            buttonCrontabA.Enabled = false;
+            buttonCrontabO.Enabled = false;
+
+        }
+
+
+        private void InitialSetupProgress()
+        {
+            progressEBSA = new Progress<ReportStatusEBSAProgress>();
+            progressEBSA.ProgressChanged += ProgressEBSA_ProgressChanged;
+
+            progressEBSO = new Progress<ReportStatusEBSOProgress>();
+            progressEBSO.ProgressChanged += ProgressEBSO_ProgressChanged;
+            xmlConfigManager = new XmlConfigManager();
+            _checkingStatusEngine = new CheckingStatusEngine(progressEBSA, progressEBSO, xmlConfigManager);
+
+        }
+
+        public async Task StartCheckingEngine()
+        {
+            await _checkingStatusEngine.StartEngine();
+        }
+
+        private void ProgressEBSO_ProgressChanged(object? sender, ReportStatusEBSOProgress e)
+        {
+            labelEBSOPathError.Text = e.PathEBSOerrorlabel;
+            labelEBSOPathInput.Text = e.PathEBSOinputlabel;
+            labelEBSOPathInWork.Text = e.PathEBSOIn_worklabel;
+            labelEBSOPathPool.Text = e.PathEBSOTranferPoollabel;
+
+            countEBSOTranferPoollabel.Text = e.countEBSOTranferPoollabel.ToString() + " " + "files";
+            countEBSOerrorlabel.Text = e.countEBSOerrorlabel.ToString() + " " + "files";
+            countEBSOinputlabel.Text = e.countEBSOinputlabel.ToString() + " " + "files";
+            countEBSOIn_worklabel.Text = e.countEBSOIn_worklabel.ToString() + " " + "files";
+
+
+            CheckStatusLabel(e.EBSOerrorlabel, labelStatusErrorEBSO);
+            CheckStatusLabel(e.EBSOinputlabel, labelStatusInputEBSO);
+            CheckStatusLabel(e.EBSOIn_worklabel, labelStatusInworkEBSO);
+            CheckStatusLabel(e.EBSOTranferPoollabel, labelPoolStatusEBSO);
+
+            CheckCrontabLogic(e.Exists, e.Entries, panelEBSOCrontab, buttonCrontabO, "EBSO");
+
+            CheckCrontabLogic(e.Xe1Exists, e.Xe1Entries, panelEBSOXe1Crontab, buttonCrontabOXe1, "Xe1");
+
+            CheckCrontabLogic(e.Xe2Exists, e.Xe2Entries, panelEBSOXe2Crontab, buttonCrontabOXe2, "Xe2");
+
+        }
+
+
+        private void CheckStatusLabel(string status, Label label)
+        {
+            if (status == "Finished...")
+            {
+                label.Text = status;
+                label.ForeColor = Color.Green;
+            }
+            else
+            {
+                label.Text = status;
+                label.ForeColor = Color.Yellow;
+            }
+        }
+        private void ProgressEBSA_ProgressChanged(object? sender, ReportStatusEBSAProgress e)
+        {
+            labelEBSAPathError.Text = e.PathEBSAerrorlabel;
+            labelEBSAPathInput.Text = e.PathEBSAinputlabel;
+            labelEBSAPathInWork.Text = e.PathEBSAIn_worklabel;
+
+
+
+            countEBSAerrorlabel.Text = e.countEBSAerrorlabel.ToString() + " " + "files";
+            countEBSAinputlabel.Text = e.countEBSAinputlabel.ToString() + " " + "files";
+            countEBSAIn_worklabel.Text = e.countEBSAIn_worklabel.ToString() + " " + "files";
+
+            CheckStatusLabel(e.EBSAerrorlabel, labelStatusErrorEBSA);
+            CheckStatusLabel(e.EBSAinputlabel, labelStatusInputEBSA);
+            CheckStatusLabel(e.EBSAIn_worklabel, labelStatusInworkEBSA);
+            CheckCrontabLogic(e.Exists, e.Entries, panelEBSACrontab, buttonCrontabA, "EBSA");
+
+
+        }
+
+
+
+        private void countEBSOerrorlabel_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private async void RefreshBtn_Click(object sender, EventArgs e)
+        {
+            await StartCheckingEngine();
+        }
+
+
+        private void CheckCrontabLogic(bool exists, List<string> Entries, Panel panel, Button button, string EBS)
+        {
+
+            if (exists)
+            {
+                panel.BackColor = Color.LightGreen;
+                button.Enabled = true;
+
+                if (EBS == "EBSA")
+                {
+                    _listlineEBSA = new List<string>();
+                    _listlineEBSA = Entries;
+                }
+                else if (EBS == "Xe1")
+                {
+                    _listlineEBSOXe1 = Entries;
+                }
+                else if (EBS == "Xe2")
+                {
+                    _listlineEBSOXe2 = Entries;
+                }
+                else
+                {
+                    _listlineEBSO = new List<string>();
+                    _listlineEBSO = Entries;
+
+                }
+
+            }
+
+            else
+            {
+                panel.BackColor = Color.Red;
+                button.Enabled = false;
+            }
+        }
+
+        private void buttonCrontabO_Click(object sender, EventArgs e)
+        {
+            CrontabForm crontabForm = new CrontabForm(_listlineEBSO, "EBSO41");
+            crontabForm.Show();
+        }
+
+        private void buttonCrontabA_Click(object sender, EventArgs e)
+        {
+            CrontabForm crontabForm = new CrontabForm(_listlineEBSA, "EBSA42");
+            crontabForm.Show();
+        }
+
+        private void buttonCrontabOXe1_Click(object sender, EventArgs e)
+        {
+            CrontabForm crontabForm = new CrontabForm(_listlineEBSOXe1, "EBSO41Xe1");
+            crontabForm.Show();
+        }
+
+        private void buttonCrontabOXe2_Click(object sender, EventArgs e)
+        {
+            CrontabForm crontabForm = new CrontabForm(_listlineEBSOXe2, "EBSO41Xe2");
+            crontabForm.Show();
+        }
+
+        private async void buttonProcessEBSO_Click(object sender, EventArgs e)
+        {
+            var result = await _checkingStatusEngine.GetMultipleProcessEBSO();
+            ProcessCheckingForm processCheckingForm = new ProcessCheckingForm(result.Results, "process in EBS41");
+            processCheckingForm.Show();
+        }
+
+        private async void buttonProcessEBSA_Click(object sender, EventArgs e)
+        {
+            var result = await _checkingStatusEngine.GetMultipleProcessEBSA();
+            ProcessCheckingForm processCheckingForm = new ProcessCheckingForm(result.Results, "process in EBS42");
+            processCheckingForm.Show();
+        }
+    }
+}
