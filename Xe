@@ -136,3 +136,43 @@ ORDER BY XE_CREATE DESC";
         sql, param, commandType: CommandType.Text, ct: ct);
 }
 
+
+public async Task<IReadOnlyList<XeExtractionSummary>> GetTopExtractionsByLotPatternAsync(
+    string lotPattern,
+    int topN = 10,
+    CancellationToken ct = default)
+{
+    if (string.IsNullOrWhiteSpace(lotPattern))
+        throw new ArgumentException("lotPattern is required.", nameof(lotPattern));
+
+    const string sql = @"
+SELECT
+    XE_ID,
+    XE_NAME,
+    XE_PID
+FROM (
+    SELECT
+        XE_ID,
+        XE_NAME,
+        XE_PID,
+        XE_CREATE
+    FROM XE_EXTRACTIONS
+    WHERE DBMS_LOB.INSTR(XE_EDL, :lot_pattern) > 0
+    ORDER BY XE_CREATE DESC
+)
+WHERE ROWNUM <= :top_n
+ORDER BY XE_CREATE DESC";
+
+    var param = new
+    {
+        lot_pattern = lotPattern,
+        top_n = topN
+    };
+
+    _log.Info($"[XE_EXTRACTIONS] Searching top {topN} records in XE_EDL for pattern: {lotPattern}");
+
+    return await _db.QueryAsync<XeExtractionSummary>(
+        sql, param, commandType: CommandType.Text, ct: ct);
+}
+
+
