@@ -1,0 +1,89 @@
+// --- Left nav highlight ---
+private Panel _navMarker;
+private readonly List<Button> _navButtons = new();
+private Button _selectedNav;
+
+
+private void BuildLeftNavHighlight()
+{
+    // thin accent bar on the very left of sidePanel
+    _navMarker = new Panel
+    {
+        Width = 3,
+        Height = 0,                 // set when selecting a button
+        BackColor = Flat47Style.Accent, // from your Flat47 palette
+        Visible = false
+    };
+    sidePanel.Controls.Add(_navMarker);
+    _navMarker.BringToFront();
+
+    // keep the marker in front if layout changes
+    sidePanel.ControlAdded  += (_, __) => _navMarker.BringToFront();
+    sidePanel.Resize        += (_, __) => { if (_selectedNav != null) MoveNavMarker(_selectedNav); };
+}
+
+private void RegisterNavButtons()
+{
+    // Add all left-nav buttons here (top-to-bottom order in sidePanel)
+    _navButtons.Clear();
+    _navButtons.Add(CheckStatusbtn);
+    _navButtons.Add(buttonInvestigation);
+
+    // Base styling (flat, dark) and hover effects
+    foreach (var btn in _navButtons)
+    {
+        Flat47Style.StyleButton(btn);
+        btn.TextAlign = ContentAlignment.MiddleLeft;
+        btn.Padding   = new Padding(12, 0, 8, 0);
+
+        btn.MouseEnter += (_, __) =>
+        {
+            if (btn != _selectedNav)
+                btn.BackColor = Flat47Style.SurfaceAlt;
+        };
+        btn.MouseLeave += (_, __) =>
+        {
+            if (btn != _selectedNav)
+                btn.BackColor = Flat47Style.Surface;
+        };
+    }
+
+    // Pick an initial selected nav (optional)
+    SetNavSelected(CheckStatusbtn);
+}
+
+private void SetNavSelected(Button btn)
+{
+    if (btn == null || !_navButtons.Contains(btn)) return;
+
+    // clear previous selection visuals
+    foreach (var n in _navButtons)
+    {
+        if (n == btn) continue;
+        n.BackColor = Flat47Style.Surface;
+        n.ForeColor = Flat47Style.TextPrimary;
+        n.Font = new Font(n.Font, FontStyle.Regular);
+    }
+
+    // apply selected visuals
+    _selectedNav = btn;
+    _selectedNav.BackColor = Color.FromArgb(56, 56, 56); // subtle lift vs Surface
+    _selectedNav.ForeColor = Flat47Style.TextPrimary;
+    _selectedNav.Font = new Font(_selectedNav.Font, FontStyle.Bold);
+
+    MoveNavMarker(_selectedNav);
+}
+
+private void MoveNavMarker(Control target)
+{
+    if (target == null) return;
+
+    // position the marker flush-left, aligned to the selected button
+    _navMarker.Visible = true;
+    _navMarker.Height  = target.Height;
+    _navMarker.Left    = 0;
+    // convert target.Top to sidePanel coords in case of nested containers
+    var pt = sidePanel.PointToClient(target.Parent.PointToScreen(new Point(target.Left, target.Top)));
+    _navMarker.Top = pt.Y;
+    _navMarker.BringToFront();
+}
