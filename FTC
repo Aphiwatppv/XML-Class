@@ -1,0 +1,23 @@
+#!/bin/bash
+
+echo "Enter the source folder path:"
+read SOURCE_FOLDER
+
+echo "Enter the destination folder path:"
+read DEST_FOLDER
+
+# Create destination folder if not exists
+mkdir -p "$DEST_FOLDER"
+
+# Loop through all files in the source folder
+for file in "$SOURCE_FOLDER"/*; do
+    filename=$(basename "$file")
+
+    # Create empty file with original name
+    touch "$DEST_FOLDER/$filename"
+
+    # Create empty file with .FTC extension
+    touch "$DEST_FOLDER/$filename.FTC"
+done
+
+echo "Finished creating files in $DEST_FOLDER"
