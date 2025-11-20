@@ -1,0 +1,53 @@
+#!/bin/bash
+
+echo "Enter the source folder path:"
+read SOURCE_FOLDER
+
+echo "Enter the destination folder path:"
+read DEST_FOLDER
+
+# --- Check source folder exists ---
+if [ ! -d "$SOURCE_FOLDER" ]; then
+    echo "Error: Source folder does not exist."
+    exit 1
+fi
+
+# --- Check source folder is not empty ---
+if [ -z "$(ls -A "$SOURCE_FOLDER")" ]; then
+    echo "Error: Source folder is empty."
+    exit 1
+fi
+
+# --- Try to create destination folder ---
+mkdir -p "$DEST_FOLDER" 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo "Error: Unable to create or access destination folder."
+    exit 1
+fi
+
+# --- Process files ---
+for file in "$SOURCE_FOLDER"/*; do
+    # Skip if not a regular file
+    if [ ! -f "$file" ]; then
+        echo "Skipping non-file item: $file"
+        continue
+    fi
+
+    filename=$(basename "$file")
+
+    # Create empty file with original filename
+    if ! touch "$DEST_FOLDER/$filename" 2>/dev/null; then
+        echo "Error: Cannot create $filename"
+        continue
+    fi
+
+    # Create empty file with .FTC extension
+    if ! touch "$DEST_FOLDER/$filename.FTC" 2>/dev/null; then
+        echo "Error: Cannot create $filename.FTC"
+        continue
+    fi
+
+    echo "Created: $filename and $filename.FTC"
+done
+
+echo "All done! Files created in: $DEST_FOLDER"
