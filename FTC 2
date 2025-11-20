@@ -1,0 +1,71 @@
+#!/bin/bash
+
+echo "Enter the source folder path:"
+read SOURCE_FOLDER
+
+echo "Enter the destination folder path:"
+read DEST_FOLDER
+
+echo "Enter keyword to filter filenames:"
+read KEYWORD
+
+# --- Check source folder exists ---
+if [ ! -d "$SOURCE_FOLDER" ]; then
+    echo "Error: Source folder does not exist."
+    exit 1
+fi
+
+# --- Check source folder is not empty ---
+if [ -z "$(ls -A "$SOURCE_FOLDER")" ]; then
+    echo "Error: Source folder is empty."
+    exit 1
+fi
+
+# --- Create destination folder ---
+mkdir -p "$DEST_FOLDER"
+if [ $? -ne 0 ]; then
+    echo "Error: Unable to create or access destination folder."
+    exit 1
+fi
+
+MATCHED=false
+
+# --- Process only files matching the keyword ---
+for file in "$SOURCE_FOLDER"/*"$KEYWORD"*; do
+
+    # No match check
+    if [ ! -e "$file" ]; then
+        continue
+    fi
+
+    # Skip if not a file
+    if [ ! -f "$file" ]; then
+        echo "Skipping non-file item: $file"
+        continue
+    fi
+
+    MATCHED=true
+    filename=$(basename "$file")
+
+    # Copy original file with full content
+    if ! cp "$file" "$DEST_FOLDER/$filename" 2>/dev/null; then
+        echo "Error: Cannot copy $filename"
+        continue
+    fi
+
+    # Create empty .FTC file
+    if ! touch "$DEST_FOLDER/$filename.FTC" 2>/dev/null; then
+        echo "Error: Cannot create $filename.FTC"
+        continue
+    fi
+
+    echo "Copied: $filename"
+    echo "Created: $filename.FTC"
+
+done
+
+if [ "$MATCHED" = false ]; then
+    echo "No files found containing keyword: $KEYWORD"
+fi
+
+echo "All done! Files created in: $DEST_FOLDER"
