@@ -1,0 +1,94 @@
+public PingResult CheckPing(
+    string targetHost,
+    int count = 4,
+    int timeoutSeconds = 2)
+{
+    try
+    {
+        _logSystem.Info(
+            $"CheckPing start: sudoUser={_sudoUser}, target={targetHost}, count={count}, timeout={timeoutSeconds}");
+
+        string cmdText = BuildSudoCmd($"ping -c {count} -W {timeoutSeconds} {targetHost} 2>&1");
+
+        var (output, exit, err) = RunWithExit(cmdText);
+        var raw = string.IsNullOrWhiteSpace(output) ? err : output;
+
+        int transmitted = 0;
+        int received = 0;
+        double loss = 100;
+        double? min = null, avg = null, max = null;
+
+        foreach (var line in raw.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var l = line.Trim();
+            if (IsBannerNoise(l)) continue;
+
+            if (l.Contains("packets transmitted"))
+            {
+                var parts = l.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 3)
+                {
+                    int.TryParse(parts[0].Trim().Split(' ')[0], out transmitted);
+                    int.TryParse(parts[1].Trim().Split(' ')[0], out received);
+
+                    var lossPart = parts[2].Split('%')[0].Trim();
+                    double.TryParse(lossPart, out loss);
+                }
+            }
+            else if (l.StartsWith("rtt ") || l.StartsWith("round-trip "))
+            {
+                var eq = l.Split('=');
+                if (eq.Length == 2)
+                {
+                    var nums = eq[1].Replace("ms", "").Trim().Split('/');
+                    if (nums.Length >= 3)
+                    {
+                        double.TryParse(nums[0], out var v1);
+                        double.TryParse(nums[1], out var v2);
+                        double.TryParse(nums[2], out var v3);
+                        min = v1; avg = v2; max = v3;
+                    }
+                }
+            }
+        }
+
+        bool reachable = received > 0;
+
+        if (reachable)
+            _logSystem.Info($"Ping OK: {targetHost}, avg={avg?.ToString("F2") ?? "-"} ms, loss={loss}%");
+        else
+            _logSystem.Warning($"Ping FAIL: {targetHost}, loss={loss}%");
+
+        return new PingResult
+        {
+            Target = targetHost,
+            Reachable = reachable,
+            Transmitted = transmitted,
+            Received = received,
+            PacketLossPercent = loss,
+            MinMs = min,
+            AvgMs = avg,
+            MaxMs = max,
+            RawOutput = raw
+        };
+    }
+    catch (Exception ex)
+    {
+        _logSystem.Error($"CheckPing error ({targetHost}): {ex.Message}");
+        throw;
+    }
+}
+
+
+public sealed class PingResult
+{
+    public string Target { get; init; } = "";
+    public bool Reachable { get; init; }
+    public int Transmitted { get; init; }
+    public int Received { get; init; }
+    public double PacketLossPercent { get; init; }
+    public double? MinMs { get; init; }
+    public double? AvgMs { get; init; }
+    public double? MaxMs { get; init; }
+    public string RawOutput { get; init; } = "";
+}
