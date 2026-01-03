@@ -1,0 +1,144 @@
+public SpeedTestResult MeasureScpSpeedBetweenServers(
+    string destHost,                 // destination server hostname/IP
+    string destSshUser,              // ssh user on destination (often same as sudoUser)
+    string destFolder = "/tmp",       // where to copy on destination
+    int fileSizeMB = 200,            // test file size (MB)
+    int ddBlockMB = 4                // dd block size (MB)
+)
+{
+    try
+    {
+        _logSystem.Info(
+            $"MeasureScpSpeedBetweenServers start: sudoUser={_sudoUser}, dest={destSshUser}@{destHost}, sizeMB={fileSizeMB}");
+
+        if (fileSizeMB <= 0) throw new ArgumentException("fileSizeMB must be > 0", nameof(fileSizeMB));
+        if (ddBlockMB <= 0) ddBlockMB = 4;
+
+        // Unique file names
+        var id = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        var srcFile = $"/tmp/speedtest_{_sudoUser}_{id}.bin";
+        var dstFile = $"{destFolder.TrimEnd('/')}/speedtest_{_sudoUser}_{id}.bin";
+
+        // Bytes
+        long bytes = (long)fileSizeMB * 1024L * 1024L;
+
+        // Use /usr/bin/time -p for stable parsing: prints:
+        // real <seconds>
+        // user <seconds>
+        // sys  <seconds>
+        //
+        // NOTE: scp options:
+        // -oBatchMode=yes : no password prompts (fails fast)
+        // -oStrictHostKeyChecking=no : avoid interactive host key prompt
+        // -oConnectTimeout=10 : fail fast if unreachable
+        // -q : quiet, reduce noise
+        string scpOpts = "-q -oBatchMode=yes -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oConnectTimeout=10";
+
+        // Script executed on SOURCE server as sudo user
+        // 1) create test file on source (dd)
+        // 2) upload to dest with timed scp
+        // 3) download back from dest with timed scp
+        // 4) cleanup both sides
+        string script = $@"
+set -e
+SRC={Q(srcFile)}
+DST={Q(dstFile)}
+DEST={Q(destSshUser + "@" + destHost)}
+OPTS={Q(scpOpts)}
+
+echo __SPEEDTEST_START__
+echo SRC_FILE=$SRC
+echo DST_FILE=$DST
+echo BYTES={bytes}
+
+# Create test file on source
+dd if=/dev/zero of=$SRC bs={ddBlockMB}M count={(fileSizeMB + ddBlockMB - 1) / ddBlockMB} conv=fsync status=none
+
+echo __UPLOAD_BEGIN__
+/usr/bin/time -p scp $OPTS $SRC $DEST:$DST
+echo __UPLOAD_END__
+
+echo __DOWNLOAD_BEGIN__
+/usr/bin/time -p scp $OPTS $DEST:$DST ${{SRC}}.dl
+echo __DOWNLOAD_END__
+
+# Cleanup
+rm -f $SRC ${{SRC}}.dl
+ssh -oBatchMode=yes -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -oConnectTimeout=10 $DEST ""rm -f $DST"" || true
+
+echo __SPEEDTEST_END__
+";
+
+        // Run via sudo wrapper (your existing BuildSudoCmd + RunWithExit)
+        string cmdText = BuildSudoCmd(script);
+        var (output, exit, err) = RunWithExit(cmdText);
+
+        var raw = (output ?? "") + (string.IsNullOrWhiteSpace(err) ? "" : ("\n" + err));
+
+        // Parse "real <sec>" lines inside upload/download markers
+        double uploadSec = ParseTimeSeconds(raw, "__UPLOAD_BEGIN__", "__UPLOAD_END__");
+        double downloadSec = ParseTimeSeconds(raw, "__DOWNLOAD_BEGIN__", "__DOWNLOAD_END__");
+
+        // Mbps = (bytes * 8) / seconds / 1e6
+        double uploadMbps = uploadSec > 0 ? (bytes * 8.0) / uploadSec / 1_000_000.0 : 0;
+        double downloadMbps = downloadSec > 0 ? (bytes * 8.0) / downloadSec / 1_000_000.0 : 0;
+
+        _logSystem.Info($"SpeedTest done: upload={uploadMbps:F2} Mbps, download={downloadMbps:F2} Mbps");
+
+        return new SpeedTestResult
+        {
+            SourceHost = _auth.Hostname,
+            DestHost = destHost,
+            TestBytes = bytes,
+            UploadSeconds = uploadSec,
+            DownloadSeconds = downloadSec,
+            UploadMbps = uploadMbps,
+            DownloadMbps = downloadMbps,
+            RawOutput = raw
+        };
+    }
+    catch (Exception ex)
+    {
+        _logSystem.Error($"MeasureScpSpeedBetweenServers error: {ex.Message}");
+        throw;
+    }
+}
+
+// Helper: parse /usr/bin/time -p output between markers
+private static double ParseTimeSeconds(string text, string beginMarker, string endMarker)
+{
+    bool inBlock = false;
+    foreach (var line in text.Split('\n'))
+    {
+        var l = line.Trim();
+        if (l == beginMarker) { inBlock = true; continue; }
+        if (l == endMarker) { inBlock = false; continue; }
+
+        // inside block: time -p prints "real <sec>"
+        if (inBlock && l.StartsWith("real ", StringComparison.OrdinalIgnoreCase))
+        {
+            var parts = l.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 2 && double.TryParse(parts[1], out var sec))
+                return sec;
+        }
+    }
+    return 0;
+}
+
+public sealed class SpeedTestResult
+{
+    public string SourceHost { get; set; } = "";
+    public string DestHost { get; set; } = "";
+    public long TestBytes { get; set; }
+
+    // Upload: source -> dest
+    public double UploadMbps { get; set; }
+    public double UploadSeconds { get; set; }
+
+    // Download: dest -> source
+    public double DownloadMbps { get; set; }
+    public double DownloadSeconds { get; set; }
+
+    public string RawOutput { get; set; } = "";
+}
+
