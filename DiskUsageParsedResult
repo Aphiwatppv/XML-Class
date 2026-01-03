@@ -1,0 +1,93 @@
+public sealed class DiskUsageEntry
+{
+    public string Filesystem { get; set; } = "";
+    public string Size { get; set; } = "";
+    public string Used { get; set; } = "";
+    public string Avail { get; set; } = "";
+    public string UsePercent { get; set; } = "";
+    public string MountedOn { get; set; } = "";
+}
+
+public sealed class DiskUsageParsedResult
+{
+    public bool Success { get; set; }
+    public List<DiskUsageEntry> Entries { get; set; } = new();
+    public string RawOutput { get; set; } = "";
+}
+
+public DiskUsageParsedResult CheckDiskUsageParsed(string? mountPointFilter = null)
+{
+    try
+    {
+        _logSystem.Info(
+            $"CheckDiskUsageParsed start: sudoUser={_sudoUser}, mountFilter={mountPointFilter ?? "-"}");
+
+        string script = "df -h 2>&1";
+        string cmdText =
+            $"sudo -n -iu {_sudoUser} env -i TERM=dumb LC_ALL=C PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin sh -c {Q(script)}";
+
+        string output = Run(_auth, cmdText);
+
+        var lines = output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.Trim())
+            .ToList();
+
+        // Remove banner/profile noise
+        lines.RemoveAll(l =>
+            l.StartsWith("EBS instance:", StringComparison.OrdinalIgnoreCase) ||
+            l.StartsWith("Sourcing ", StringComparison.OrdinalIgnoreCase) ||
+            l.Contains(".profile-ebs", StringComparison.OrdinalIgnoreCase) ||
+            l.Contains("successfully loaded", StringComparison.OrdinalIgnoreCase)
+        );
+
+        var entries = new List<DiskUsageEntry>();
+
+        foreach (var line in lines)
+        {
+            // Skip header
+            if (line.StartsWith("Filesystem", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 6) continue;
+
+            int fsLen = parts.Length - 5;
+
+            var entry = new DiskUsageEntry
+            {
+                Filesystem = string.Join(" ", parts.Take(fsLen)),
+                Size = parts[fsLen],
+                Used = parts[fsLen + 1],
+                Avail = parts[fsLen + 2],
+                UsePercent = parts[fsLen + 3],
+                MountedOn = parts[fsLen + 4]
+            };
+
+            // Apply mount-point filter if provided
+            if (!string.IsNullOrWhiteSpace(mountPointFilter))
+            {
+                if (!entry.MountedOn.Contains(mountPointFilter, StringComparison.OrdinalIgnoreCase))
+                    continue;
+            }
+
+            entries.Add(entry);
+        }
+
+        _logSystem.Info($"CheckDiskUsageParsed done: {entries.Count} entries");
+
+        return new DiskUsageParsedResult
+        {
+            Success = entries.Count > 0,
+            Entries = entries,
+            RawOutput = string.Join("\n", lines)
+        };
+    }
+    catch (Exception ex)
+    {
+        _logSystem.Error($"CheckDiskUsageParsed error: {ex.Message}");
+        throw;
+    }
+}
+
+
