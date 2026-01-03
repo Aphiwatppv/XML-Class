@@ -1,0 +1,788 @@
+// SudoLister.Async.cs
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Renci.SshNet;
+using Renci.SshNet.Common;
+
+namespace SudoLister.EngineSudo
+{
+    // ---------- Models / DTOs ----------
+    public sealed class SSHAuth
+    {
+        public string Hostname { get; init; } = "";
+        public int Port { get; init; } = 22;
+        public string Username { get; init; } = "";   // your normal login user (not the sudo target)
+        public string? Password { get; init; } = null;
+        public string? KeyFile { get; init; } = null; // OpenSSH private key (not .ppk)
+        public string? KeyPassphrase { get; init; } = null;
+        public bool SudoRequireTty { get; init; } = false; // kept for future PTY path
+    }
+
+    public sealed class FileEntry
+    {
+        public string Name { get; init; } = "";
+        public string Path { get; init; } = "";
+        public bool IsDir { get; init; }
+        public long Size { get; init; }
+        public DateTime? MTime { get; init; }
+        public string? Mode { get; init; } // not used by sudo-find path
+    }
+
+    public sealed class TransferRateResult
+    {
+        public int Files { get; init; }
+        public TimeSpan Window { get; init; }
+        public DateTime WindowStart { get; init; }
+        public DateTime WindowEnd { get; init; }
+        public double PerMinute { get; init; }
+        public double PerHour { get; init; }
+    }
+
+    public sealed class QueueSizeResult
+    {
+        public int Pending { get; init; }
+        public List<FileEntry> Items { get; init; } = new();
+    }
+
+    public sealed class CrontabResult
+    {
+        public bool Exists { get; init; }
+        public List<string> Entries { get; init; } = new();
+        public string RawOutput { get; init; } = "";
+    }
+
+    public sealed class ProcessResult
+    {
+        public bool Exists { get; init; }
+        public List<string> Entries { get; init; } = new();
+        public string RawOutput { get; init; } = "";
+    }
+
+    public sealed class TopResult
+    {
+        public bool Exists { get; init; }
+        public List<string> TopEntries { get; init; } = new();
+        public string RawOutput { get; init; } = "";
+    }
+
+    public sealed class MultiProcessResult
+    {
+        public Dictionary<string, ProcessResult> Results { get; init; } = new();
+        public bool AllFound { get; init; }
+        public List<string> Missing { get; init; } = new();
+        public string RawPsOutput { get; init; } = "";
+    }
+
+    // NOTE: m is a number (float seconds), not a string
+    internal sealed class FindRec
+    {
+        public string t { get; set; } = ""; // %y
+        public long   s { get; set; }       // %s
+        public double m { get; set; }       // %T@
+        public string p { get; set; } = ""; // %p
+    }
+
+    // =========================
+    //   EngineSudo.SudoLister
+    // =========================
+    public class SudoLister
+    {
+        private readonly SSHAuth _auth;
+        private readonly string _sudoUser;
+        private readonly LogSystem.ILogSystem _logSystem;
+
+        public SudoLister(SSHAuth auth, string sudoUser)
+        {
+            _auth = auth ?? throw new ArgumentNullException(nameof(auth));
+            _sudoUser = string.IsNullOrWhiteSpace(sudoUser) ? throw new ArgumentException("sudoUser required") : sudoUser;
+            _logSystem = new LogSystem.LogSystem("Log", "Investigation");
+        }
+
+        public SudoLister(SSHAuth auth, string sudoUser, LogSystem.ILogSystem logger)
+        {
+            _auth = auth ?? throw new ArgumentNullException(nameof(auth));
+            _sudoUser = string.IsNullOrWhiteSpace(sudoUser) ? throw new ArgumentException("sudoUser required") : sudoUser;
+            _logSystem = logger ?? new LogSystem.LogSystem("Log", "Investigation");
+        }
+
+        // ---------- Quoting & clean sudo command ----------
+        private static string Q(string s) => "'" + s.Replace("'", "'\"'\"'") + "'";
+
+        /// Build a non-interactive, clean env sudo-bash:
+        /// - no ~/.bashrc or ~/.profile (--noprofile --norc)
+        /// - TERM=dumb, minimal PATH (avoid stty/tput/TERM errors)
+        /// - sudo -n fails fast instead of prompting
+        private string BuildSudoCmd(string script)
+        {
+            const string PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+            var env  = $"env -i TERM=dumb LC_ALL=C PATH={PATH}";
+            var bash = "bash --noprofile --norc -lc";
+            return $"sudo -n -iu {Q(_sudoUser)} {env} {bash} {Q(script)}";
+        }
+
+        // =========================================================================
+        // 1) ASYNC LISTING / SEARCH / SUMMARY
+        // =========================================================================
+
+        public async Task<List<FileEntry>> ListAsync(string basePath, bool recursive, bool includeFiles = true, bool includeDirs = false)
+            => await ExecFindAsync(basePath, recursive, includeFiles, includeDirs);
+
+        public async Task<List<FileEntry>> FindByNameAsync(string basePath, string filename)
+        {
+            var all = await ExecFindAsync(basePath, recursive: true, includeFiles: true, includeDirs: false);
+            return all.Where(f => string.Equals(f.Name, filename, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+
+        public async Task<List<FileEntry>> FindContainingAsync(string basePath, string substring)
+        {
+            var all = await ExecFindAsync(basePath, recursive: true, includeFiles: true, includeDirs: false);
+            return all.Where(f => f.Name.IndexOf(substring, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+        }
+
+        public async Task<Dictionary<string, List<FileEntry>>> SummarizeByNameAsync(string basePath, string filename)
+        {
+            var matches = await FindByNameAsync(basePath, filename);
+            return GroupByDirectory(matches);
+        }
+
+        public async Task<Dictionary<string, List<FileEntry>>> SummarizeContainingAsync(string basePath, string substring)
+        {
+            var matches = await FindContainingAsync(basePath, substring);
+            return GroupByDirectory(matches);
+        }
+
+        // =========================================================================
+        // 2) ASYNC METRICS
+        // =========================================================================
+
+        public async Task<TransferRateResult> MeasureTransferRateAsync(
+            string basePath, TimeSpan window, bool recursive = true, string? nameContains = null)
+        {
+            try
+            {
+                if (window <= TimeSpan.Zero) throw new ArgumentException("window must be > 0", nameof(window));
+                var now   = DateTime.Now;
+                var start = now - window;
+
+                _logSystem.Info($"MeasureTransferRateAsync start: sudoUser={_sudoUser}, path={basePath}, window={window}, recursive={recursive}, filter={nameContains ?? "-"}");
+
+                var rows = await ExecFindAsync(basePath, recursive, includeFiles: true, includeDirs: false);
+
+                IEnumerable<FileEntry> filtered = rows.Where(f => f.MTime.HasValue && f.MTime.Value >= start && f.MTime.Value <= now);
+                if (!string.IsNullOrWhiteSpace(nameContains))
+                    filtered = filtered.Where(f => f.Name.Contains(nameContains, StringComparison.OrdinalIgnoreCase));
+
+                int count = filtered.Count();
+                var result = new TransferRateResult
+                {
+                    Files = count,
+                    Window = window,
+                    WindowStart = start,
+                    WindowEnd = now,
+                    PerMinute = count / window.TotalMinutes,
+                    PerHour   = count / window.TotalHours
+                };
+
+                _logSystem.Info($"MeasureTransferRateAsync done: files={result.Files}, perMin={result.PerMinute:F2}, perHour={result.PerHour:F2}");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logSystem.Error($"MeasureTransferRateAsync error: {ex.Message}");
+                throw;
+            }
+        }
+
+        public Task<TransferRateResult> MeasureTransferRateLastMinutesAsync(string basePath, int minutes, bool recursive = true, string? nameContains = null)
+            => MeasureTransferRateAsync(basePath, TimeSpan.FromMinutes(minutes), recursive, nameContains);
+
+        public Task<TransferRateResult> MeasureTransferRateLastHoursAsync(string basePath, double hours, bool recursive = true, string? nameContains = null)
+            => MeasureTransferRateAsync(basePath, TimeSpan.FromHours(hours), recursive, nameContains);
+
+        public async Task<QueueSizeResult> GetQueueSizeAsync(
+            string folderPath,
+            bool recursive = false,
+            string? nameContains = null,
+            bool includeFiles = true,
+            bool includeDirs  = false)
+        {
+            try
+            {
+                _logSystem.Info(
+                    $"GetQueueSizeAsync start: sudoUser={_sudoUser}, path={folderPath}, " +
+                    $"recursive={recursive}, filter={nameContains ?? "-"}, " +
+                    $"includeFiles={includeFiles}, includeDirs={includeDirs}");
+
+                var rows = await ExecFindAsync(folderPath, recursive, includeFiles, includeDirs);
+
+                IEnumerable<FileEntry> filtered = rows;
+                if (!string.IsNullOrWhiteSpace(nameContains))
+                    filtered = filtered.Where(f => f.Name.Contains(nameContains, StringComparison.OrdinalIgnoreCase));
+
+                var list = filtered.ToList();
+                var result = new QueueSizeResult { Pending = list.Count, Items = list };
+
+                _logSystem.Info($"GetQueueSizeAsync done: pending={result.Pending}");
+                if (result.Pending == 0) _logSystem.Warning("GetQueueSizeAsync: no pending items found.");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logSystem.Error($"GetQueueSizeAsync error: {ex.Message}");
+                throw;
+            }
+        }
+
+        public Task<QueueSizeResult> GetQueueSizeFilesOnlyAsync(string path, bool recursive = false, string? nameContains = null)
+            => GetQueueSizeAsync(path, recursive, nameContains, includeFiles: true,  includeDirs: false);
+
+        public Task<QueueSizeResult> GetQueueSizeDirsOnlyAsync(string path, bool recursive = false, string? nameContains = null)
+            => GetQueueSizeAsync(path, recursive, nameContains, includeFiles: false, includeDirs: true);
+
+        public Task<QueueSizeResult> GetQueueSizeFilesAndDirsAsync(string path, bool recursive = false, string? nameContains = null)
+            => GetQueueSizeAsync(path, recursive, nameContains, includeFiles: true,  includeDirs: true);
+
+        // =========================================================================
+        // 3) ASYNC COPY: REMOTE → LOCAL  (sudo cat)
+        // =========================================================================
+        public async Task CopyFileFromRemoteAsync(string remotePath, string localPath)
+        {
+            var catCmd = BuildSudoCmd($"cat {remotePath}");
+            try
+            {
+                _logSystem.Info($"CopyFileFromRemoteAsync start: sudoUser={_sudoUser}, remote={remotePath}, local={localPath}");
+
+                await Task.Run(() =>
+                {
+                    using var ssh = CreateSsh(_auth);
+                    ssh.Connect();
+                    var cmd = ssh.CreateCommand(catCmd);
+                    using var output = cmd.ExecuteReader(); // raw bytes
+
+                    Directory.CreateDirectory(Path.GetDirectoryName(localPath) ?? ".");
+                    using var fs = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                    output.BaseStream.CopyTo(fs);
+                    ssh.Disconnect();
+                });
+
+                _logSystem.Info($"CopyFileFromRemoteAsync done: {remotePath} -> {localPath}");
+            }
+            catch (Exception ex)
+            {
+                _logSystem.Error($"CopyFileFromRemoteAsync error ({remotePath}): {ex.Message}");
+                throw;
+            }
+        }
+
+        // =========================================================================
+        // 4) ASYNC COPY: LOCAL → REMOTE  (SFTP to /tmp + sudo mv + chmod/chown)
+        // =========================================================================
+        public async Task CopyFileToRemoteAsync(string localPath, string remotePath, string? chmod = null, string? chown = null)
+        {
+            if (!File.Exists(localPath)) throw new FileNotFoundException("Local file not found", localPath);
+
+            var tempName   = $"upload_{Guid.NewGuid():N}";
+            var tempRemote = $"/tmp/{tempName}";
+
+            try
+            {
+                _logSystem.Info($"CopyFileToRemoteAsync start: sudoUser={_sudoUser}, local={localPath}, remote={remotePath}, chmod={chmod ?? "-"}, chown={chown ?? "-"}");
+
+                // 1) Upload to temp via SFTP (login user)
+                await Task.Run(() =>
+                {
+                    using var sftp = CreateSftp(_auth);
+                    sftp.Connect();
+                    using var lf = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    sftp.UploadFile(lf, tempRemote);
+                    sftp.Disconnect();
+                });
+
+                // 2) sudo move to final + optional chmod/chown
+                var destDir = $"$(dirname {Q(remotePath)})";
+                string script = $"mkdir -p {destDir} && mv {Q(tempRemote)} {Q(remotePath)}";
+                if (!string.IsNullOrWhiteSpace(chmod)) script += $" && chmod {chmod} {Q(remotePath)}";
+                if (!string.IsNullOrWhiteSpace(chown)) script += $" && chown {chown} {Q(remotePath)}";
+                var fullCmd = BuildSudoCmd(script);
+
+                await Task.Run(() =>
+                {
+                    using var ssh = CreateSsh(_auth);
+                    ssh.Connect();
+                    var cmd = ssh.CreateCommand(fullCmd);
+                    var res = cmd.Execute();
+                    var exit = cmd.ExitStatus;
+                    var err  = cmd.Error;
+                    ssh.Disconnect();
+                    if (exit != 0) throw new Exception($"sudo move failed (exit {exit}). Error: {err}");
+                });
+
+                _logSystem.Info($"CopyFileToRemoteAsync done: {localPath} -> {remotePath}");
+            }
+            catch (Exception ex)
+            {
+                _logSystem.Error($"CopyFileToRemoteAsync error ({localPath} -> {remotePath}): {ex.Message}");
+                // optional cleanup (best-effort)
+                try
+                {
+                    await Task.Run(() =>
+                    {
+                        using var ssh = CreateSsh(_auth);
+                        ssh.Connect();
+                        var cleanup = ssh.CreateCommand(BuildSudoCmd($"rm -f {Q(tempRemote)}"));
+                        cleanup.Execute();
+                        ssh.Disconnect();
+                    });
+                }
+                catch { /* ignore */ }
+                throw;
+            }
+        }
+
+        // =========================================================================
+        // 5) ASYNC: CHECK CRONTAB
+        // =========================================================================
+        public async Task<CrontabResult> CheckCrontabExistsAsync()
+        {
+            try
+            {
+                _logSystem.Info($"CheckCrontabExistsAsync start: sudoUser={_sudoUser}");
+
+                // Use sh to avoid .profile-ebs; keep clean env
+                var cmdText = $"sudo -n -iu {_sudoUser} env -i TERM=dumb LC_ALL=C PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin sh -c 'crontab -l 2>&1'";
+
+                var (output, exit) = await RunWithExitAsync(cmdText);
+
+                var lines = output
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(l => l.Trim())
+                    .ToList();
+
+                // Filter banners if any
+                lines.RemoveAll(l =>
+                    l.StartsWith("EBS instance:", StringComparison.OrdinalIgnoreCase) ||
+                    l.StartsWith("Sourcing ", StringComparison.OrdinalIgnoreCase) ||
+                    l.Contains(".profile-ebs", StringComparison.OrdinalIgnoreCase) ||
+                    l.Contains("successfully loaded", StringComparison.OrdinalIgnoreCase)
+                );
+
+                var cleanOutput = string.Join("\n", lines);
+
+                if (exit == 0 && lines.Count > 0)
+                {
+                    var entries = lines.Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
+                    _logSystem.Info($"Crontab found for {_sudoUser}: {entries.Count} lines");
+                    return new CrontabResult { Exists = true, Entries = entries, RawOutput = cleanOutput };
+                }
+
+                if (cleanOutput.Contains("no crontab for", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logSystem.Warning($"No crontab for {_sudoUser}");
+                    return new CrontabResult { Exists = false, RawOutput = cleanOutput };
+                }
+
+                if (exit != 0)
+                {
+                    _logSystem.Error($"CheckCrontabExistsAsync failed (exit {exit}): {cleanOutput}");
+                    throw new Exception($"Unexpected error while checking crontab: {cleanOutput}");
+                }
+
+                _logSystem.Warning($"CheckCrontabExistsAsync ambiguous: output={cleanOutput}");
+                return new CrontabResult { Exists = false, RawOutput = cleanOutput };
+            }
+            catch (Exception ex)
+            {
+                _logSystem.Error($"CheckCrontabExistsAsync error: {ex.Message}");
+                throw;
+            }
+        }
+
+        // =========================================================================
+        // 6) ASYNC: PROCESS SNAPSHOT / GREP / TOP
+        // =========================================================================
+        public async Task<ProcessResult> CheckProcessListAsync(string? filter = null)
+        {
+            try
+            {
+                _logSystem.Info($"CheckProcessListAsync start: sudoUser={_sudoUser}, filter={filter ?? "-"}");
+
+                var psLines = await GetCleanProcessSnapshotAsync(out var rawPs);
+
+                if (!string.IsNullOrWhiteSpace(filter))
+                    psLines = psLines.Where(l => l.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                var cleanOutput = string.Join("\n", psLines);
+
+                if (psLines.Count > 0)
+                {
+                    _logSystem.Info($"CheckProcessListAsync done: {psLines.Count} processes (filter={filter ?? "none"})");
+                    return new ProcessResult { Exists = true, Entries = psLines, RawOutput = cleanOutput };
+                }
+
+                _logSystem.Warning($"No processes found (filter={filter ?? "none"})");
+                return new ProcessResult { Exists = false, RawOutput = cleanOutput };
+            }
+            catch (Exception ex)
+            {
+                _logSystem.Error($"CheckProcessListAsync error: {ex.Message}");
+                throw;
+            }
+        }
+
+        public async Task<TopResult> CheckTopProcessesAsync(int topCount = 10)
+        {
+            try
+            {
+                _logSystem.Info($"CheckTopProcessesAsync start: sudoUser={_sudoUser}, topCount={topCount}");
+
+                string script = "top -b -n 1 2>&1";
+                var cmdText = BuildSudoCmd(script);
+                var (output, exit) = await RunWithExitAsync(cmdText);
+
+                var lines = output
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(l => l.Trim())
+                    .ToList();
+
+                // Remove banner noise
+                lines.RemoveAll(l =>
+                    l.StartsWith("EBS instance:", StringComparison.OrdinalIgnoreCase) ||
+                    l.StartsWith("Sourcing ", StringComparison.OrdinalIgnoreCase) ||
+                    l.Contains(".profile-ebs", StringComparison.OrdinalIgnoreCase) ||
+                    l.Contains("successfully loaded", StringComparison.OrdinalIgnoreCase)
+                );
+
+                var cleanOutput = string.Join("\n", lines);
+
+                int startIdx = lines.FindIndex(l => l.StartsWith("PID "));
+                var topLines = (startIdx >= 0)
+                    ? lines.Skip(startIdx + 1).Take(topCount).ToList()
+                    : lines.TakeLast(topCount).ToList();
+
+                if (exit == 0 && topLines.Count > 0)
+                {
+                    _logSystem.Info($"CheckTopProcessesAsync done: {topLines.Count} top entries.");
+                    return new TopResult { Exists = true, TopEntries = topLines, RawOutput = cleanOutput };
+                }
+
+                _logSystem.Warning($"No top processes found.");
+                return new TopResult { Exists = false, RawOutput = cleanOutput };
+            }
+            catch (Exception ex)
+            {
+                _logSystem.Error($"CheckTopProcessesAsync error: {ex.Message}");
+                throw;
+            }
+        }
+
+        public async Task<ProcessResult> CheckProcessByNameAsync(string processName)
+        {
+            try
+            {
+                _logSystem.Info($"CheckProcessByNameAsync start: sudoUser={_sudoUser}, process={processName}");
+
+                var psLines = await GetCleanProcessSnapshotAsync(out var rawPs);
+                var lines = psLines
+                    .Where(l => !l.Contains("grep -i", StringComparison.OrdinalIgnoreCase))
+                    .Where(l => l.IndexOf(processName, StringComparison.OrdinalIgnoreCase) >= 0)
+                    .ToList();
+
+                var cleanOutput = string.Join("\n", lines);
+
+                if (lines.Count > 0)
+                {
+                    _logSystem.Info($"Process '{processName}' found: {lines.Count} entries");
+                    return new ProcessResult { Exists = true, Entries = lines, RawOutput = cleanOutput };
+                }
+
+                _logSystem.Warning($"Process '{processName}' not found.");
+                return new ProcessResult { Exists = false, RawOutput = cleanOutput };
+            }
+            catch (Exception ex)
+            {
+                _logSystem.Error($"CheckProcessByNameAsync error ({processName}): {ex.Message}");
+                throw;
+            }
+        }
+
+        public async Task<MultiProcessResult> CheckProcessesByNamesAsync(IEnumerable<string> processNames)
+        {
+            try
+            {
+                var names = processNames?.Where(n => !string.IsNullOrWhiteSpace(n)).ToList() ?? new List<string>();
+                if (names.Count == 0) throw new ArgumentException("At least one process name must be provided.", nameof(processNames));
+
+                _logSystem.Info($"CheckProcessesByNamesAsync start: sudoUser={_sudoUser}, count={names.Count}");
+
+                var psLines = await GetCleanProcessSnapshotAsync(out var rawPs);
+                var lowerPs = psLines
+                    .Where(l => !l.Contains("grep -i", StringComparison.OrdinalIgnoreCase))
+                    .Select(l => (orig: l, low: l.ToLowerInvariant()))
+                    .ToList();
+
+                var results = new Dictionary<string, ProcessResult>(StringComparer.OrdinalIgnoreCase);
+                var missing = new List<string>();
+
+                foreach (var name in names)
+                {
+                    var needle = name.ToLowerInvariant();
+                    var matches = lowerPs.Where(x => x.low.Contains(needle)).Select(x => x.orig).ToList();
+
+                    if (matches.Count > 0)
+                    {
+                        _logSystem.Info($"Process '{name}' found: {matches.Count} matches");
+                        results[name] = new ProcessResult { Exists = true, Entries = matches, RawOutput = string.Join("\n", matches) };
+                    }
+                    else
+                    {
+                        _logSystem.Warning($"Process '{name}' not found.");
+                        results[name] = new ProcessResult { Exists = false, Entries = new List<string>(), RawOutput = "" };
+                        missing.Add(name);
+                    }
+                }
+
+                return new MultiProcessResult
+                {
+                    Results = results,
+                    AllFound = missing.Count == 0,
+                    Missing = missing,
+                    RawPsOutput = rawPs
+                };
+            }
+            catch (Exception ex)
+            {
+                _logSystem.Error($"CheckProcessesByNamesAsync error: {ex.Message}");
+                throw;
+            }
+        }
+
+        public async Task<MultiProcessResult> CheckProcessesByMapAsync(IDictionary<string, string> labelToPattern)
+        {
+            if (labelToPattern == null || labelToPattern.Count == 0)
+                throw new ArgumentException("labelToPattern must contain at least one entry.", nameof(labelToPattern));
+
+            _logSystem.Info($"CheckProcessesByMapAsync start: sudoUser={_sudoUser}, count={labelToPattern.Count}");
+
+            var psLines = await GetCleanProcessSnapshotAsync(out var rawPs);
+            var lowerPs = psLines
+                .Where(l => !l.Contains("grep -i", StringComparison.OrdinalIgnoreCase))
+                .Select(l => (orig: l, low: l.ToLowerInvariant()))
+                .ToList();
+
+            var results = new Dictionary<string, ProcessResult>(StringComparer.OrdinalIgnoreCase);
+            var missing = new List<string>();
+
+            foreach (var kv in labelToPattern)
+            {
+                var label = kv.Key ?? "";
+                var pattern = kv.Value ?? "";
+                var needle = pattern.ToLowerInvariant();
+
+                var matches = lowerPs.Where(x => x.low.Contains(needle)).Select(x => x.orig).ToList();
+
+                if (matches.Count > 0)
+                {
+                    _logSystem.Info($"Process '{label}' (pattern '{pattern}') found: {matches.Count} matches");
+                    results[label] = new ProcessResult { Exists = true, Entries = matches, RawOutput = string.Join("\n", matches) };
+                }
+                else
+                {
+                    _logSystem.Warning($"Process '{label}' (pattern '{pattern}') not found.");
+                    results[label] = new ProcessResult { Exists = false, Entries = new List<string>(), RawOutput = "" };
+                    missing.Add(label);
+                }
+            }
+
+            return new MultiProcessResult
+            {
+                Results = results,
+                AllFound = missing.Count == 0,
+                Missing = missing,
+                RawPsOutput = rawPs
+            };
+        }
+
+        // =========================================================================
+        // 7) INTERNAL ASYNC HELPERS
+        // =========================================================================
+
+        private async Task<List<FileEntry>> ExecFindAsync(string basePath, bool recursive, bool includeFiles, bool includeDirs)
+        {
+            return await Task.Run(() =>
+            {
+                var depthFlag = recursive ? "-mindepth 1" : "-maxdepth 1";
+
+                // Add sentinel markers to isolate JSON block
+                var findCmd =
+                    $"printf '__JSON_START__\\n'; " +
+                    $"find {Q(basePath)} {depthFlag} -printf '{{\"t\":\"%y\",\"s\":%s,\"m\":%T@,\"p\":\"%p\"}}\\n'; " +
+                    $"printf '__JSON_END__\\n'";
+                var fullCmd = BuildSudoCmd(findCmd);
+
+                try
+                {
+                    _logSystem.Info($"ExecFindAsync start: sudoUser={_sudoUser}, path={basePath}, recursive={recursive}, files={includeFiles}, dirs={includeDirs}");
+                    string output = Run(_auth, fullCmd);
+
+                    var list = new List<FileEntry>();
+                    using var sr = new StringReader(output);
+                    string? line;
+                    bool inJson = false;
+
+                    while ((line = sr.ReadLine()) != null)
+                    {
+                        line = line.Trim();
+                        if (line == "__JSON_START__") { inJson = true; continue; }
+                        if (line == "__JSON_END__")   { break; }
+                        if (!inJson || line.Length == 0 || line[0] != '{' || !line.EndsWith("}")) continue;
+
+                        FindRec? rec;
+                        try { rec = JsonSerializer.Deserialize<FindRec>(line); }
+                        catch
+                        {
+                            _logSystem.Warning($"ExecFindAsync: skipped unparsable line: {line}");
+                            continue;
+                        }
+                        if (rec == null) continue;
+
+                        bool isDir = rec.t == "d";
+                        if ((isDir && includeDirs) || (!isDir && includeFiles))
+                        {
+                            DateTime? mtime = null;
+                            try { mtime = DateTimeOffset.FromUnixTimeSeconds((long)rec.m).LocalDateTime; } catch { /* ignore */ }
+
+                            var name = rec.p.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? "";
+                            list.Add(new FileEntry { Name = name, Path = rec.p, IsDir = isDir, Size = rec.s, MTime = mtime });
+                        }
+                    }
+
+                    list = list.OrderBy(r => r.Path).ThenBy(r => r.Name).ToList();
+                    _logSystem.Info($"ExecFindAsync done: {list.Count} entries");
+                    if (list.Count == 0) _logSystem.Warning("ExecFindAsync: no entries found.");
+                    return list;
+                }
+                catch (Exception ex)
+                {
+                    _logSystem.Error($"ExecFindAsync error ({basePath}): {ex.Message}");
+                    throw;
+                }
+            });
+        }
+
+        private async Task<List<string>> GetCleanProcessSnapshotAsync(out string raw)
+        {
+            string script = "ps -ef 2>&1";
+            var cmdText = BuildSudoCmd(script);
+
+            string output;
+            int exit;
+            (output, exit) = await RunWithExitAsync(cmdText);
+            raw = output;
+
+            var lines = output
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(l => l.Trim())
+                .ToList();
+
+            // Remove banner / profile chatter if any
+            lines.RemoveAll(l =>
+                l.StartsWith("EBS instance:", StringComparison.OrdinalIgnoreCase) ||
+                l.StartsWith("Sourcing ", StringComparison.OrdinalIgnoreCase) ||
+                l.Contains(".profile-ebs", StringComparison.OrdinalIgnoreCase) ||
+                l.Contains("successfully loaded", StringComparison.OrdinalIgnoreCase));
+
+            return lines;
+        }
+
+        private static Dictionary<string, List<FileEntry>> GroupByDirectory(IEnumerable<FileEntry> rows)
+            => rows.GroupBy(f => DirName(f.Path))
+                   .ToDictionary(g => g.Key, g => g.OrderBy(x => x.Name).ToList());
+
+        private static string DirName(string path)
+        {
+            var p = path.Replace('\\', '/');
+            var i = p.LastIndexOf('/');
+            return i <= 0 ? "/" : p[..i];
+        }
+
+        private static SshClient CreateSsh(SSHAuth auth)
+        {
+            if (!string.IsNullOrWhiteSpace(auth.KeyFile))
+            {
+                var key = string.IsNullOrEmpty(auth.KeyPassphrase)
+                    ? new PrivateKeyFile(auth.KeyFile)
+                    : new PrivateKeyFile(auth.KeyFile, auth.KeyPassphrase);
+
+                var conn = new ConnectionInfo(
+                    auth.Hostname, auth.Port, auth.Username,
+                    new AuthenticationMethod[] { new PrivateKeyAuthenticationMethod(auth.Username, key) }
+                );
+                return new SshClient(conn);
+            }
+            return new SshClient(auth.Hostname, auth.Port, auth.Username, auth.Password);
+        }
+
+        private static SftpClient CreateSftp(SSHAuth auth)
+        {
+            if (!string.IsNullOrWhiteSpace(auth.KeyFile))
+            {
+                var key = string.IsNullOrEmpty(auth.KeyPassphrase)
+                    ? new PrivateKeyFile(auth.KeyFile)
+                    : new PrivateKeyFile(auth.KeyFile, auth.KeyPassphrase);
+
+                var conn = new ConnectionInfo(
+                    auth.Hostname, auth.Port, auth.Username,
+                    new AuthenticationMethod[] { new PrivateKeyAuthenticationMethod(auth.Username, key) }
+                );
+                return new SftpClient(conn);
+            }
+            return new SftpClient(auth.Hostname, auth.Port, auth.Username, auth.Password);
+        }
+
+        // Core sync runner (wrapped by Task.Run in callers when needed)
+        private static string Run(SSHAuth auth, string cmdText)
+        {
+            using var ssh = CreateSsh(auth);
+            ssh.Connect();
+            var cmd = ssh.CreateCommand(cmdText);
+            var output = cmd.Execute();
+            var exit = cmd.ExitStatus;
+            var err  = cmd.Error;
+            ssh.Disconnect();
+
+            if (exit != 0 && string.IsNullOrEmpty(output))
+                throw new Exception($"Command failed (exit {exit}): {err}");
+
+            return output;
+        }
+
+        // Async helper that also returns exit status
+        private static async Task<(string Output, int Exit)> RunWithExitAsync(string cmdText, SSHAuth? authOverride = null)
+        {
+            return await Task.Run(() =>
+            {
+                var auth = authOverride ?? throwIfNullAuth();
+                using var ssh = CreateSsh(auth);
+                ssh.Connect();
+                var cmd = ssh.CreateCommand(cmdText);
+                var output = cmd.Execute();
+                var exit = cmd.ExitStatus;
+                var err  = cmd.Error;
+                ssh.Disconnect();
+
+                // We don't throw here automatically because some commands (like crontab -l)
+                // use non-zero exit to signal "no crontab". Callers decide.
+                return (output, exit);
+
+                SSHAuth throwIfNullAuth()
+                {
+                    throw new InvalidOperationException("authOverride must be provided when calling RunWithExitAsync directly.");
+                }
+            });
+        }
+    }
+}
