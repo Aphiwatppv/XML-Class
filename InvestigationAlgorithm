@@ -1,4 +1,5 @@
 using InvestigationServices.ModelEBSO;
+using Microsoft.VisualBasic.Logging;
 using System.Text.RegularExpressions;
 
 namespace BKGEBSInvestigation.InvestigationServicesUserController
@@ -32,7 +33,8 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
         private readonly List<StdfGroupedResult> _stepp;
         private readonly List<MeasurementGroupByStep> _ebso;
         private readonly List<MeasurementGroupByStep> _ebsa;
-
+        private readonly List<MeasurementDetail> _ebsoDetail;
+        private readonly List<MeasurementDetail> _ebsaDetail;
         private readonly string _currentOper;
         private readonly string _basicType;
         private readonly string _totalWafers;
@@ -48,7 +50,9 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
         public AlgorithmInvestigate(
             List<StdfGroupedResult> stepp,
             List<MeasurementGroupByStep> ebso,
+            List<MeasurementDetail> ebsoDetail,
             List<MeasurementGroupByStep> ebsa,
+            List<MeasurementDetail> ebsaDetail,
             string currentOper,
             string basicType,
             string totalWafers,
@@ -57,6 +61,9 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
             _stepp = stepp ?? new List<StdfGroupedResult>();
             _ebso = ebso ?? new List<MeasurementGroupByStep>();
             _ebsa = ebsa ?? new List<MeasurementGroupByStep>();
+            _ebsoDetail = ebsoDetail ?? new List<MeasurementDetail>();
+            _ebsaDetail = ebsaDetail ?? new List<MeasurementDetail>();
+
 
             _currentOper = currentOper ?? string.Empty;
             _basicType = basicType ?? string.Empty;
@@ -394,20 +401,41 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
             var mesTotal = SafeInt(_totalWafers);
             if (mesTotal <= 0) yield break;
 
-            // Compare MES UI total with max wafers observed in STEPP (sum of steps) as a quick indicator
+            // Compare MES UI total with max wafers observed in Latest STEPP  as a quick indicator
             if (_stepp.Any())
             {
-                var steppSum = _stepp.Sum(x => x.TOTAL_WAFER);
-                if (steppSum != 0 && steppSum != mesTotal)
+                var stepplatest = _stepp(x => x.TOTAL_WAFER); // use latest wafer from stepp
+                if (stepplatest != 0 && stepplatest != mesTotal)
                 {
                     yield return new Finding(
                         FindingSeverity.Warning,
                         "MES UI wafer count mismatch (possible normal)",
-                        $"MES UI total wafers={mesTotal}, STEPP total wafers (sum)={steppSum}.{Environment.NewLine}" +
+                        $"MES UI total wafers={mesTotal}, STEPP total wafers (latest by Test mode)={stepplatest}.{Environment.NewLine}" +
                         "Possible reason: lot is still testing in the test floor OR partial upload/pickup timing.");
                 }
             }
         }
+
+
+        // -------------------- Check Lot Aggregation Process --------------------
+
+        private IEnumerable<Finding> CheckLotAggregationProcessEBSO()
+        {
+
+           
+            // and foreach S1,S2 and S3 , it should have a record that WAFERNUMBER == null or empty string. this represent to success processing lot aggregation
+            // if not still have remaining wafer testing in the test flor. ( normal case )
+            // or have some issue of pick up date from stepp server to ebso
+        }
+
+        private IEnumerable<Finding> CheckLotAggregationProcessEBSA()
+        {
+            // and foreach S1,S2 and S3 , it should have a record that WAFERNUMBER == null or empty string. this represent to success processing lot aggregation
+            // if not still have remaining wafer testing in the test flor. ( normal case )
+            // or have some issue of pick up date from ebso server to ebsa
+        }
+
+
 
         // -------------------- DATA VIEW HELPERS --------------------
 
@@ -501,37 +529,23 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
     }
 }
 
-// -------------------- YOUR MODELS (AS PROVIDED) --------------------
-
-namespace InvestigationServices.ModelEBSO
+public sealed class MeasurementDetail
 {
-    public sealed class MeasurementGroupByStep
-    {
-        public string LOT_ID { get; init; } = "";
-        public string STEP { get; init; } = "";
-        public string SUB_STEP { get; init; } = "";
-        public string TEST_TYPE { get; init; } = "";
-        public string MEASCAT_NAME { get; init; } = "";
+    public string LOT_ID { get; init; } = "";
+    public string MOTHER_LOT { get; init; } = "";
+    public string WAFERNUMBER { get; init; } = "";
+    public string STEP { get; init; } = "";
+    public string SUB_STEP { get; init; } = "";
+    public string TEST_TYPE { get; init; } = "";
+    public string MEASCAT_NAME { get; init; } = "";
+    public DateTime? TIMESTAMP_BEGIN { get; init; }
+    public DateTime? TIMESTAMP_END { get; init; }
+    public DateTime? TIMESTAMP_LOADING { get; init; }
+    public int? COMPONENT_SEQ { get; init; }
+    public string MEAS_COUNTER { get; init; }
+    public string CHIP_DATA_ATTACHED { get; init; }
+    public string VISIBLE { get; init; }
+    public long MEAS_ID { get; init; }
+    public long MEAS_ALLOWED { get; init; }
 
-        public DateTime? LATEST_LOADING_TIME { get; init; }
-        public int TOTAL_MEASUREMENTS { get; init; }
-        public int WAFER_COUNT { get; init; }
-    }
-}
-
-namespace InvestigationServices.ModelEBSO
-{
-    public sealed class StdfGroupedResult
-    {
-        public string PRODUCT_TYPE { get; init; } = "";
-        public string TEST_PROG_NAME { get; init; } = "";
-        public string TEST_PROG_REVISION { get; init; } = "";
-        public string MEASSTP_NAME { get; init; } = "";
-        public string LOT_NUMBER { get; init; } = "";
-        public string TESTER_NAME { get; init; } = "";
-
-        public DateTime? FIRST_REQUEST_DATE { get; init; }
-        public DateTime? LAST_REPLY_DATE { get; init; }
-        public int TOTAL_WAFER { get; init; }
-    }
 }
