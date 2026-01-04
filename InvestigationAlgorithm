@@ -25,14 +25,12 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
         public string ToStory()
         {
             var sb = new System.Text.StringBuilder();
-
             sb.AppendLine($"Lot: {Lot}");
             sb.AppendLine($"Operation: {Operation} | BasicType: {BasicType} | MES TotalWafers: {TotalWafers}");
             sb.AppendLine();
-
             sb.AppendLine("Story:");
             sb.AppendLine($"We investigated how lot '{Lot}' moved through the data pipeline (STEPP → EBSO → EBSA).");
-            sb.AppendLine("We checked: (1) test mode presence (S1/S2/S3), (2) wafer count per test mode, and (3) lot aggregation marker (WAFERNUMBER empty record).");
+            sb.AppendLine("We checked: (1) test mode presence (S1/S2/S3), (2) wafer count per test mode, (3) lot aggregation marker (WAFERNUMBER empty record), and (4) stuck-operation trigger symptom.");
             sb.AppendLine();
 
             var crit = Findings.Count(f => f.Severity == FindingSeverity.Critical);
@@ -42,56 +40,23 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
             sb.AppendLine($"Summary: {crit} Critical, {warn} Warning, {info} Info finding(s).");
             sb.AppendLine();
 
-            void appendTop(string header, FindingSeverity sev, int max)
+            foreach (var f in Findings.Where(x => x.Severity == FindingSeverity.Critical).Take(6))
             {
-                var list = Findings.Where(f => f.Severity == sev).Take(max).ToList();
-                if (list.Count == 0) return;
-
-                sb.AppendLine(header);
-                foreach (var f in list)
-                {
-                    sb.AppendLine($"- {f.Title}");
-                    sb.AppendLine($"  {OneLine(f.Detail)}");
-                }
-                sb.AppendLine();
+                sb.AppendLine($"- [Critical] {f.Title}");
+                sb.AppendLine($"  {OneLine(f.Detail)}");
             }
 
-            appendTop("Critical behaviors detected:", FindingSeverity.Critical, 6);
-            appendTop("Warnings / possible timing behaviors:", FindingSeverity.Warning, 6);
-
-            if (crit == 0 && warn == 0)
+            if (!Findings.Any(x => x.Severity == FindingSeverity.Critical))
             {
-                sb.AppendLine("Everything looks consistent in the data pipeline. No abnormal behavior detected from step presence, wafer counts, or aggregation markers.");
-                sb.AppendLine();
+                sb.AppendLine("No critical issues detected in presence/mismatch/aggregation checks.");
             }
 
+            sb.AppendLine();
             sb.AppendLine("Suggested action (based on behavior):");
             if (Findings.Any(f => f.Title.Contains("Contact EMA Team", StringComparison.OrdinalIgnoreCase)))
-            {
-                sb.AppendLine("- Contact EMA Team to check trigger generation/pickup (trigger might be missing or not sent).");
-            }
-            else if (Findings.Any(f => f.Title.Contains("lot aggregation", StringComparison.OrdinalIgnoreCase)))
-            {
-                sb.AppendLine("- Focus on Lot Aggregation Process (aggregation record not created). Check aggregation job/log.");
-            }
-            else if (Findings.Any(f => f.Title.Contains("missing", StringComparison.OrdinalIgnoreCase) &&
-                                       f.Title.Contains("EBSO", StringComparison.OrdinalIgnoreCase)))
-            {
-                sb.AppendLine("- Focus on STEPP → EBSO pickup (loader/EMA). Verify trigger path and pickup schedule.");
-            }
-            else if (Findings.Any(f => f.Title.Contains("Wafer mismatch", StringComparison.OrdinalIgnoreCase)))
-            {
-                sb.AppendLine("- Focus on partial pickup / remaining wafer files. Confirm whether testing is still ongoing.");
-            }
-            else if (Findings.Any(f => f.Title.Contains("EBSA", StringComparison.OrdinalIgnoreCase) &&
-                                       f.Title.Contains("empty", StringComparison.OrdinalIgnoreCase)))
-            {
-                sb.AppendLine("- Focus on EBSO → EBSA forwarding/replication.");
-            }
+                sb.AppendLine("- Contact EMA Team to check trigger generation/pickup (trigger may be missing/delayed/not sent).");
             else
-            {
-                sb.AppendLine("- Re-check timestamps and query freshness; could be timing-related.");
-            }
+                sb.AppendLine("- Follow findings above (pickup/mismatch/aggregation/timing).");
 
             return sb.ToString();
         }
@@ -115,7 +80,7 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
 
         private readonly string _currentOper;
         private readonly string _basicType;
-        private readonly string _totalWafers;
+        private readonly string _totalWafers; // MES UI total wafers (string)
         private readonly string _lot;
 
         public AlgorithmInvestigate(
@@ -169,9 +134,8 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
 
             findings.AddRange(Rule_SteppEqualsEbsoButNoAggregation());
 
-            // ✅ NEW RULE: If pipeline looks good (EBSO+EBSA have aggregation and no mismatches),
-            // but lot still stuck in these operations -> contact EMA Team to check trigger.
-            findings.AddRange(Rule_EverythingLooksGoodButLotStillStuck_ContactEma());
+            // ✅ Updated rule (your last message)
+            findings.AddRange(Rule_EverythingLooksGoodButLotStillStuck_ContactEma_V2());
 
             return new InvestigationReport(_lot, _currentOper, _basicType, _totalWafers, findings);
         }
@@ -228,18 +192,6 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
                 .OrderBy(ParseStepNumber)
                 .ToList();
 
-            var testers = _stepp
-                .Select(x => x.TESTER_NAME ?? "")
-                .Where(s => !string.IsNullOrWhiteSpace(s))
-                .Distinct()
-                .ToList();
-
-            var testPrograms = _stepp
-                .Select(x => x.TEST_PROG_NAME ?? "")
-                .Where(s => !string.IsNullOrWhiteSpace(s))
-                .Distinct()
-                .ToList();
-
             var revisions = _stepp
                 .Select(x => x.TEST_PROG_REVISION ?? "")
                 .Where(s => !string.IsNullOrWhiteSpace(s))
@@ -261,8 +213,6 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
                 "STEPP summary",
                 $"TestModes: {string.Join(", ", stepNames)}{Environment.NewLine}" +
                 $"Wafers by step: {string.Join(", ", wafersByStep.Select(x => $"{x.Step}={x.Total}"))}{Environment.NewLine}" +
-                $"Testers: {testers.Count} ({PreviewList(testers, 3)}){Environment.NewLine}" +
-                $"TestPrograms: {PreviewList(testPrograms, 2)}{Environment.NewLine}" +
                 $"TestProgramRevision: {PreviewList(revisions, 3)}{Environment.NewLine}" +
                 $"FirstRequestDate: {FormatDate(firstRequest)}{Environment.NewLine}" +
                 $"LastReplyDate: {FormatDate(lastReply)}"
@@ -458,65 +408,132 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
             }
         }
 
-        // ✅ NEW RULE (your request):
-        // If EBSO and EBSA look good (no critical mismatch findings),
-        // AND both have lot aggregation markers,
-        // BUT lot stuck at operations: "4100,4130,4200,4230,4300,4330"
-        // => contact EMA Team to check trigger.
-        private IEnumerable<Finding> Rule_EverythingLooksGoodButLotStillStuck_ContactEma()
+        // ✅ UPDATED EMA TRIGGER RULE (V2) — exactly as your comment
+        //
+        // Enable when:
+        // 1) Latest STEPP step wafer count == MES UI total wafers
+        // 2) EBSO & EBSA look good (no mismatch, no missing step)
+        // 3) For each S1/S2/S3, wafer counts are equal across STEPP = EBSO = EBSA (where step exists)
+        // 4) Both EBSO and EBSA have lot aggregation markers
+        // 5) Lot stuck at operations: 4100,4130,4200,4230,4300,4330
+        // => contact EMA Team to check trigger
+        private IEnumerable<Finding> Rule_EverythingLooksGoodButLotStillStuck_ContactEma_V2()
         {
             var stuckOpers = new HashSet<string>(new[] { "4100", "4130", "4200", "4230", "4300", "4330" }, StringComparer.OrdinalIgnoreCase);
             if (!stuckOpers.Contains((_currentOper ?? "").Trim())) yield break;
 
-            // Must have data in both EBSO & EBSA
+            // Need EBSO & EBSA data
             if (!_ebso.Any() || !_ebsa.Any()) yield break;
 
-            // Must have aggregation marker in both
+            // Need MES UI total wafers valid
+            var mesTotal = SafeInt(_totalWafers);
+            if (mesTotal <= 0) yield break;
+
+            // 1) Latest STEPP step wafer count == MES
+            var latestSteppStep = GetLatestStepFromStepp();
+            if (string.IsNullOrWhiteSpace(latestSteppStep)) yield break;
+
+            var latestSteppWafers = GetSteppTotalByStep(latestSteppStep);
+            if (latestSteppWafers <= 0) yield break;
+
+            if (latestSteppWafers != mesTotal) yield break;
+
+            // 4) both have aggregation markers
             var ebsoHasAgg = HasAnyAggregationMarker(_ebso, _ebsoDetail);
             var ebsaHasAgg = HasAnyAggregationMarker(_ebsa, _ebsaDetail);
             if (!ebsoHasAgg || !ebsaHasAgg) yield break;
 
-            // "Everything look good": no wafer mismatch between STEPP/EBSO and EBSO/EBSA,
-            // and no missing-step criticals.
-            var mismatches = GetWaferMismatchCount();
-            if (mismatches > 0) yield break;
+            // 2) and 3) "look good" + equality across STEPP/EBSO/EBSA per step
+            if (!AllStepsEqualAcrossSystems(out var mismatchExplain))
+                yield break;
 
             yield return new Finding(
                 FindingSeverity.Critical,
                 "Contact EMA Team: Trigger check required",
-                $"EBSO and EBSA look good: both have data and lot aggregation marker(s) are present, and no wafer mismatch was detected.{Environment.NewLine}" +
-                $"However, lot '{_lot}' is still stuck at operation '{_currentOper}' (stuck list: 4100/4130/4200/4230/4300/4330).{Environment.NewLine}" +
-                "Conclusion: Please contact EMA Team to check trigger generation/pickup (trigger may be missing, delayed, or not sent).");
+                $"Rule matched:{Environment.NewLine}" +
+                $"- Latest STEPP step '{latestSteppStep}' wafers={latestSteppWafers} equals MES UI total wafers={mesTotal}{Environment.NewLine}" +
+                $"- EBSO & EBSA have lot aggregation marker(s){Environment.NewLine}" +
+                $"- No missing-step / wafer-count mismatch across STEPP/EBSO/EBSA (S1/S2/S3){Environment.NewLine}" +
+                $"- Lot is still stuck at operation '{_currentOper}' (4100/4130/4200/4230/4300/4330){Environment.NewLine}{Environment.NewLine}" +
+                $"Conclusion: Please contact EMA Team to check trigger generation/pickup (trigger may be missing, delayed, or not sent).{Environment.NewLine}" +
+                $"Debug detail: {mismatchExplain}");
         }
 
-        private int GetWaferMismatchCount()
+        private bool AllStepsEqualAcrossSystems(out string explain)
         {
-            var steppWafers = GetWafersByStepFromStepp(_stepp);
-            var ebsoWafers = GetWafersByStepFromEbs(_ebso);
-            var ebsaWafers = GetWafersByStepFromEbs(_ebsa);
+            explain = "All steps matched.";
 
-            int mismatch = 0;
-            foreach (var step in new[] { "S1", "S2", "S3" })
-            {
-                if (steppWafers.ContainsKey(step) && ebsoWafers.ContainsKey(step) && steppWafers[step] != ebsoWafers[step])
-                    mismatch++;
+            var steppW = GetWafersByStepFromStepp(_stepp);
+            var ebsoW = GetWafersByStepFromEbs(_ebso);
+            var ebsaW = GetWafersByStepFromEbs(_ebsa);
 
-                if (ebsoWafers.ContainsKey(step) && ebsaWafers.ContainsKey(step) && ebsoWafers[step] != ebsaWafers[step])
-                    mismatch++;
-            }
-
-            // Also treat missing-step cases as "not good"
             var steppSteps = GetStepsFromStepp(_stepp);
             var ebsoSteps = GetStepsFromEbs(_ebso);
             var ebsaSteps = GetStepsFromEbs(_ebsa);
 
+            // If STEPP has step, EBSO must have it; if EBSO has step, EBSA must have it
             foreach (var step in new[] { "S1", "S2", "S3" })
             {
-                if (steppSteps.Contains(step) && !ebsoSteps.Contains(step)) mismatch++;
-                if (ebsoSteps.Contains(step) && !ebsaSteps.Contains(step)) mismatch++;
+                if (steppSteps.Contains(step) && !ebsoSteps.Contains(step))
+                {
+                    explain = $"Presence mismatch: STEPP has {step}, EBSO missing {step}.";
+                    return false;
+                }
+
+                if (ebsoSteps.Contains(step) && !ebsaSteps.Contains(step))
+                {
+                    explain = $"Presence mismatch: EBSO has {step}, EBSA missing {step}.";
+                    return false;
+                }
             }
 
-            return mismatch;
+            // Wafer equality where step exists across all 3
+            foreach (var step in new[] { "S1", "S2", "S3" })
+            {
+                var hasS = steppW.TryGetValue(step, out var s);
+                var hasO = ebsoW.TryGetValue(step, out var o);
+                var hasA = ebsaW.TryGetValue(step, out var a);
+
+                // If any one exists, we expect chain exists (because "everything look good" definition)
+                if (hasS || hasO || hasA)
+                {
+                    if (!hasS || !hasO || !hasA)
+                    {
+                        explain = $"Step chain not complete for {step}: STEPP={hasS}, EBSO={hasO}, EBSA={hasA}.";
+                        return false;
+                    }
+
+                    if (s != o || o != a)
+                    {
+                        explain = $"Wafer mismatch at {step}: STEPP={s}, EBSO={o}, EBSA={a}.";
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private string GetLatestStepFromStepp()
+        {
+            if (_stepp == null || _stepp.Count == 0) return "";
+
+            // Prefer highest S-number (S3 > S2 > S1). If none parseable -> empty.
+            return _stepp
+                .Select(x => NormalizeStep(x.MEASSTP_NAME ?? ""))
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(ParseStepNumber)
+                .LastOrDefault() ?? "";
+        }
+
+        private int GetSteppTotalByStep(string step)
+        {
+            if (string.IsNullOrWhiteSpace(step)) return 0;
+
+            return _stepp
+                .Where(x => string.Equals(NormalizeStep(x.MEASSTP_NAME ?? ""), NormalizeStep(step), StringComparison.OrdinalIgnoreCase))
+                .Sum(x => x.TOTAL_WAFER);
         }
 
         private static bool HasAnyAggregationMarker(List<MeasurementGroupByStep> group, List<MeasurementDetail> detail)
@@ -525,7 +542,7 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
             if (detail == null || detail.Count == 0) return false;
 
             var steps = group
-                .Select(x => (x.STEP ?? "").Trim().ToUpperInvariant())
+                .Select(x => NormalizeStep(x.STEP ?? ""))
                 .Where(s => !string.IsNullOrWhiteSpace(s))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -533,7 +550,7 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
             foreach (var step in steps)
             {
                 var hasMarker = detail.Any(d =>
-                    string.Equals((d.STEP ?? "").Trim().ToUpperInvariant(), step, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(NormalizeStep(d.STEP ?? ""), step, StringComparison.OrdinalIgnoreCase) &&
                     string.IsNullOrWhiteSpace(d.WAFERNUMBER));
 
                 if (hasMarker) return true;
@@ -563,17 +580,6 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
                     "Signal: EBSO has data but EBSA empty",
                     "EBSO contains data but EBSA has no data. Suspect forwarding/replication/pickup issue from EBSO to EBSA.");
             }
-
-            var ebsoLatest = MaxDate(_ebso.Select(x => x.LATEST_LOADING_TIME));
-            var ebsaLatest = MaxDate(_ebsa.Select(x => x.LATEST_LOADING_TIME));
-            if (ebsoLatest != null && ebsaLatest != null && ebsoLatest > ebsaLatest)
-            {
-                yield return new Finding(
-                    FindingSeverity.Info,
-                    "Loading time comparison",
-                    $"EBSO latest loading time ({FormatDate(ebsoLatest)}) is newer than EBSA ({FormatDate(ebsaLatest)}). " +
-                    "If mismatch exists, EBSA may still be processing.");
-            }
         }
 
         // -------------------- MES UI MISMATCH SIGNAL --------------------
@@ -586,17 +592,10 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
             if (mesTotal <= 0) yield break;
             if (!_stepp.Any()) yield break;
 
-            var latestStep = _stepp
-                .Select(x => NormalizeStep(x.MEASSTP_NAME ?? ""))
-                .Where(s => !string.IsNullOrWhiteSpace(s))
-                .OrderBy(ParseStepNumber)
-                .LastOrDefault();
-
+            var latestStep = GetLatestStepFromStepp();
             if (string.IsNullOrWhiteSpace(latestStep)) yield break;
 
-            var steppLatestTotal = _stepp
-                .Where(x => string.Equals(NormalizeStep(x.MEASSTP_NAME ?? ""), latestStep, StringComparison.OrdinalIgnoreCase))
-                .Sum(x => x.TOTAL_WAFER);
+            var steppLatestTotal = GetSteppTotalByStep(latestStep);
 
             if (steppLatestTotal != 0 && steppLatestTotal != mesTotal)
             {
