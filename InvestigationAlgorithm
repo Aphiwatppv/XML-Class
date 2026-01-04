@@ -170,7 +170,7 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
 
             // Additional requested detail
             var revisions = _stepp
-                .Select(x => x.TEST_PROG_REVISON ?? "")
+                .Select(x => x.TEST_PROG_REVISION ?? "")
                 .Where(s => !string.IsNullOrWhiteSpace(s))
                 .Distinct()
                 .ToList();
@@ -184,7 +184,7 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
                 .Select(g => new
                 {
                     Step = g.Key,
-                    Total = g.Sum(x => SafeInt(x.TOTAL_WAFER))
+                    Total = g.Sum(x => SafeInt(x.TOTAL_WAFER.ToString()))
                 })
                 .OrderBy(x => ParseStepNumber(x.Step))
                 .ToList();
@@ -235,7 +235,7 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
             var totalWafersByStep = data
                 .Where(x => !string.IsNullOrWhiteSpace(x.STEP))
                 .GroupBy(x => NormalizeStep(x.STEP!))
-                .Select(g => new { Step = g.Key, Total = g.Sum(x => SafeInt(x.TOTAL_WAFER)) })
+                .Select(g => new { Step = g.Key, Total = g.Sum(x => SafeInt(x.WAFER_COUNT.ToString())) })
                 .OrderBy(x => ParseStepNumber(x.Step))
                 .ToList();
 
@@ -301,6 +301,7 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
                             $"Conclusion: data can't process in loader Module of EBSO OR EMA Script can't pick up remaining wafer files from STEPP.");
                     }
                 }
+                // if number of wafer in stepp mitmatch with MES UI . the reason can happend from this lot still testing in the test flor
             }
 
             // EBSO -> EBSA rules
@@ -379,7 +380,7 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
                     .GroupBy(x => NormalizeStep(x.MEASSTP_NAME!))
                     .ToDictionary(
                         g => g.Key,
-                        g => g.Sum(x => SafeInt(x.TOTAL_WAFER)),
+                        g => g.Sum(x => SafeInt(x.TOTAL_WAFER.ToString())),
                         StringComparer.OrdinalIgnoreCase);
 
         private static Dictionary<string, int> GetWafersByStepFromEbs(List<MeasurementGroupByStep> ebs)
@@ -387,7 +388,7 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
                   .GroupBy(x => NormalizeStep(x.STEP!))
                   .ToDictionary(
                       g => g.Key,
-                      g => g.Sum(x => SafeInt(x.TOTAL_WAFER)),
+                      g => g.Sum(x => SafeInt(x.WAFER_COUNT.ToString())),
                       StringComparer.OrdinalIgnoreCase);
 
         // -------------------- GENERAL HELPERS --------------------
@@ -442,3 +443,42 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
         }
     }
 }
+
+namespace InvestigationServices.ModelEBSO
+{
+    public sealed class MeasurementGroupByStep
+    {
+        public string LOT_ID { get; init; } = "";
+        public string STEP { get; init; } = "";
+        public string SUB_STEP { get; init; } = "";
+        public string TEST_TYPE { get; init; } = "";
+        public string MEASCAT_NAME { get; init; } = "";
+
+        public DateTime? LATEST_LOADING_TIME { get; init; }  
+        public int TOTAL_MEASUREMENTS { get; init; }         
+        public int WAFER_COUNT { get; init; }                 
+    }
+}
+
+namespace InvestigationServices.ModelEBSO
+{
+    public sealed class StdfGroupedResult
+    {
+        public string PRODUCT_TYPE { get; init; } = "";
+        public string TEST_PROG_NAME { get; init; } = "";
+        public string TEST_PROG_REVISION { get; init; } = "";
+        public string MEASSTP_NAME { get; init; } = "";
+        public string LOT_NUMBER { get; init; } = "";
+        public string TESTER_NAME { get; init; } = "";
+
+        public DateTime? FIRST_REQUEST_DATE { get; init; }  
+        public DateTime? LAST_REPLY_DATE { get; init; }     
+        public int TOTAL_WAFER { get; init; }                
+    }
+}
+
+
+
+
+
+
