@@ -1,306 +1,705 @@
+using InvestigationServices.ModelEBSO;
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
-using System.Text;
-using System.Windows.Forms;
+using System.Text.RegularExpressions;
 
 namespace BKGEBSInvestigation.InvestigationServicesUserController
 {
-    /// <summary>
-    /// WinForms-friendly presenter that:
-    /// 1) Injects InvestigationReport
-    /// 2) Builds readable text (Story + Findings)
-    /// 3) Displays into TextBox or RichTextBox
-    ///
-    /// Theme: Dark tone (47,47,47) to match your app.
-    /// </summary>
-    public sealed class InvestigationReportPresenter
+    public enum FindingSeverity { Info, Warning, Critical }
+
+    public sealed record Finding(FindingSeverity Severity, string Title, string Detail);
+
+    public sealed record InvestigationReport(
+        string Lot,
+        string Operation,
+        string BasicType,
+        string TotalWafers,
+        IReadOnlyList<Finding> Findings)
     {
-        private InvestigationReport? _report;
+        public string ToReadableText()
+            => string.Join(
+                Environment.NewLine + Environment.NewLine,
+                Findings.Select(f => $"[{f.Severity}] {f.Title}{Environment.NewLine}{f.Detail}"));
 
-        // -------------------- THEME (47,47,47) --------------------
-        // Base UI tone
-        private static readonly Color UiBackground = Color.FromArgb(47, 47, 47);          // #2F2F2F
-        private static readonly Color UiHeaderText = Color.FromArgb(230, 230, 230);       // #E6E6E6
-        private static readonly Color UiBodyText = Color.FromArgb(208, 208, 208);         // #D0D0D0
-
-        // Muted severity colors (dark UI friendly)
-        private static readonly Color UiInfo = Color.FromArgb(154, 160, 166);             // #9AA0A6
-        private static readonly Color UiWarning = Color.FromArgb(201, 162, 77);           // #C9A24D
-        private static readonly Color UiCritical = Color.FromArgb(198, 93, 93);           // #C65D5D
-
-        // Optional subtle separators
-        private static readonly Color UiSeparator = Color.FromArgb(70, 70, 70);           // slightly lighter than background
-
-        /// <summary>
-        /// Inject (set) report result into presenter
-        /// </summary>
-        public InvestigationReportPresenter Inject(InvestigationReport report)
+        public string ToStory()
         {
-            _report = report ?? throw new ArgumentNullException(nameof(report));
-            return this;
-        }
+            var sb = new System.Text.StringBuilder();
 
-        /// <summary>
-        /// Build a combined string for UI (plain text)
-        /// </summary>
-        public string BuildText(
-            bool includeStory = true,
-            bool includeReadableFindings = true,
-            bool includeSummaryHeader = true,
-            int maxFindingsPerSeverity = 999)
-        {
-            if (_report == null) return "No report data (please run investigation first).";
+            sb.AppendLine($"Lot: {Lot}");
+            sb.AppendLine($"Operation: {Operation} | BasicType: {BasicType} | MES TotalWafers: {TotalWafers}");
+            sb.AppendLine();
 
-            var sb = new StringBuilder();
+            sb.AppendLine("Story:");
+            sb.AppendLine($"We investigated how lot '{Lot}' moved through the data pipeline (STEPP → EBSO → EBSA).");
+            sb.AppendLine("We checked: (1) test mode presence (S1/S2/S3), (2) wafer count per test mode, and (3) lot aggregation marker (WAFERNUMBER empty record).");
+            sb.AppendLine();
 
-            if (includeSummaryHeader)
+            var crit = Findings.Count(f => f.Severity == FindingSeverity.Critical);
+            var warn = Findings.Count(f => f.Severity == FindingSeverity.Warning);
+            var info = Findings.Count(f => f.Severity == FindingSeverity.Info);
+
+            sb.AppendLine($"Summary: {crit} Critical, {warn} Warning, {info} Info finding(s).");
+            sb.AppendLine();
+
+            void appendTop(string header, FindingSeverity sev, int max)
             {
-                sb.AppendLine("=== Investigation Report ===");
-                sb.AppendLine($"Lot: {_report.Lot}");
-                sb.AppendLine($"Operation: {_report.Operation}");
-                sb.AppendLine($"BasicType: {_report.BasicType}");
-                sb.AppendLine($"MES TotalWafers: {_report.TotalWafers}");
-                sb.AppendLine();
+                var list = Findings.Where(f => f.Severity == sev).Take(max).ToList();
+                if (list.Count == 0) return;
 
-                var crit = _report.Findings.Count(f => f.Severity == FindingSeverity.Critical);
-                var warn = _report.Findings.Count(f => f.Severity == FindingSeverity.Warning);
-                var info = _report.Findings.Count(f => f.Severity == FindingSeverity.Info);
-                sb.AppendLine($"Findings: Critical={crit}, Warning={warn}, Info={info}");
-                sb.AppendLine();
-            }
-
-            if (includeStory)
-            {
-                sb.AppendLine("=== Story ===");
-                sb.AppendLine(_report.ToStory().TrimEnd());
-                sb.AppendLine();
-            }
-
-            if (includeReadableFindings)
-            {
-                sb.AppendLine("=== Findings (Detailed) ===");
-                sb.AppendLine(RenderFindingsBySeverity(_report.Findings, maxFindingsPerSeverity));
-            }
-
-            return sb.ToString().TrimEnd();
-        }
-
-        /// <summary>
-        /// Show in TextBox (plain text).
-        /// Note: TextBox cannot color individual lines.
-        /// </summary>
-        public void Show(TextBox textBox,
-            bool includeStory = true,
-            bool includeReadableFindings = true,
-            bool includeSummaryHeader = true,
-            int maxFindingsPerSeverity = 999)
-        {
-            if (textBox == null) throw new ArgumentNullException(nameof(textBox));
-
-            ApplyTextBoxTheme(textBox);
-
-            textBox.Text = BuildText(
-                includeStory: includeStory,
-                includeReadableFindings: includeReadableFindings,
-                includeSummaryHeader: includeSummaryHeader,
-                maxFindingsPerSeverity: maxFindingsPerSeverity);
-        }
-
-        /// <summary>
-        /// Show in RichTextBox (plain text mode, no per-line color)
-        /// </summary>
-        public void Show(RichTextBox richTextBox,
-            bool includeStory = true,
-            bool includeReadableFindings = true,
-            bool includeSummaryHeader = true,
-            int maxFindingsPerSeverity = 999)
-        {
-            if (richTextBox == null) throw new ArgumentNullException(nameof(richTextBox));
-
-            ApplyRichTextBoxTheme(richTextBox);
-
-            richTextBox.Clear();
-            richTextBox.Text = BuildText(
-                includeStory: includeStory,
-                includeReadableFindings: includeReadableFindings,
-                includeSummaryHeader: includeSummaryHeader,
-                maxFindingsPerSeverity: maxFindingsPerSeverity);
-        }
-
-        /// <summary>
-        /// Show in RichTextBox with dark-theme friendly coloring:
-        /// - Critical: muted red (#C65D5D)
-        /// - Warning : muted amber (#C9A24D)
-        /// - Info    : cool gray (#9AA0A6)
-        /// </summary>
-        public void ShowColored(RichTextBox richTextBox,
-            bool includeStory = true,
-            bool includeSummaryHeader = true,
-            int maxFindingsPerSeverity = 999)
-        {
-            if (richTextBox == null) throw new ArgumentNullException(nameof(richTextBox));
-
-            ApplyRichTextBoxTheme(richTextBox);
-
-            if (_report == null)
-            {
-                richTextBox.Text = "No report data (please run investigation first).";
-                return;
-            }
-
-            richTextBox.Clear();
-            richTextBox.HideSelection = false;
-
-            // Header
-            if (includeSummaryHeader)
-            {
-                AppendLine(richTextBox, "=== Investigation Report ===", UiHeaderText, bold: true);
-                AppendLine(richTextBox, $"Lot: {_report.Lot}", UiBodyText);
-                AppendLine(richTextBox, $"Operation: {_report.Operation}", UiBodyText);
-                AppendLine(richTextBox, $"BasicType: {_report.BasicType}", UiBodyText);
-                AppendLine(richTextBox, $"MES TotalWafers: {_report.TotalWafers}", UiBodyText);
-                AppendLine(richTextBox, "", UiBodyText);
-
-                var crit = _report.Findings.Count(f => f.Severity == FindingSeverity.Critical);
-                var warn = _report.Findings.Count(f => f.Severity == FindingSeverity.Warning);
-                var info = _report.Findings.Count(f => f.Severity == FindingSeverity.Info);
-
-                AppendLine(richTextBox, $"Findings: Critical={crit}, Warning={warn}, Info={info}", UiInfo);
-                AppendSeparator(richTextBox);
-            }
-
-            // Story
-            if (includeStory)
-            {
-                AppendLine(richTextBox, "=== Story ===", UiHeaderText, bold: true);
-                AppendLine(richTextBox, _report.ToStory().TrimEnd(), UiBodyText);
-                AppendSeparator(richTextBox);
-            }
-
-            // Findings
-            AppendLine(richTextBox, "=== Findings (Detailed) ===", UiHeaderText, bold: true);
-
-            var ordered = OrderFindings(_report.Findings).ToList();
-
-            int critCount = 0, warnCount = 0, infoCount = 0;
-
-            foreach (var f in ordered)
-            {
-                if (f.Severity == FindingSeverity.Critical && ++critCount > maxFindingsPerSeverity) continue;
-                if (f.Severity == FindingSeverity.Warning && ++warnCount > maxFindingsPerSeverity) continue;
-                if (f.Severity == FindingSeverity.Info && ++infoCount > maxFindingsPerSeverity) continue;
-
-                var color = GetColor(f.Severity);
-                var icon = GetSeverityIcon(f.Severity);
-
-                AppendLine(richTextBox, $"{icon} [{f.Severity}] {f.Title}", color, bold: true);
-                AppendLine(richTextBox, f.Detail, UiBodyText);
-                AppendLine(richTextBox, "", UiBodyText);
-            }
-        }
-
-        // -------------------- THEME APPLY --------------------
-
-        private static void ApplyTextBoxTheme(TextBox tb)
-        {
-            tb.Multiline = true;
-            tb.ScrollBars = ScrollBars.Both;
-            tb.WordWrap = false;
-            tb.BorderStyle = BorderStyle.None;
-
-            tb.BackColor = UiBackground;
-            tb.ForeColor = UiBodyText;
-            tb.Font = new Font("Segoe UI", 10f);
-        }
-
-        private static void ApplyRichTextBoxTheme(RichTextBox rtb)
-        {
-            rtb.BackColor = UiBackground;
-            rtb.ForeColor = UiBodyText;
-            rtb.BorderStyle = BorderStyle.None;
-            rtb.Font = new Font("Segoe UI", 10f);
-        }
-
-        // -------------------- INTERNAL RENDER HELPERS --------------------
-
-        private static void AppendSeparator(RichTextBox rtb)
-        {
-            AppendLine(rtb, new string('─', 50), UiSeparator, bold: false);
-            AppendLine(rtb, "", UiBodyText);
-        }
-
-        private static string RenderFindingsBySeverity(IReadOnlyList<Finding> findings, int maxPerSeverity)
-        {
-            var sb = new StringBuilder();
-            var ordered = OrderFindings(findings).ToList();
-
-            int critCount = 0, warnCount = 0, infoCount = 0;
-
-            foreach (var f in ordered)
-            {
-                if (f.Severity == FindingSeverity.Critical && ++critCount > maxPerSeverity) continue;
-                if (f.Severity == FindingSeverity.Warning && ++warnCount > maxPerSeverity) continue;
-                if (f.Severity == FindingSeverity.Info && ++infoCount > maxPerSeverity) continue;
-
-                sb.AppendLine($"{GetSeverityIcon(f.Severity)} [{f.Severity}] {f.Title}");
-                sb.AppendLine(f.Detail);
-                sb.AppendLine();
-            }
-
-            return sb.ToString().TrimEnd();
-        }
-
-        private static IEnumerable<Finding> OrderFindings(IReadOnlyList<Finding> findings)
-        {
-            return findings
-                .OrderBy(f => f.Severity switch
+                sb.AppendLine(header);
+                foreach (var f in list)
                 {
-                    FindingSeverity.Critical => 0,
-                    FindingSeverity.Warning => 1,
-                    _ => 2
-                })
-                .ThenBy(f => f.Title, StringComparer.OrdinalIgnoreCase);
+                    sb.AppendLine($"- {f.Title}");
+                    sb.AppendLine($"  {OneLine(f.Detail)}");
+                }
+                sb.AppendLine();
+            }
+
+            appendTop("Critical behaviors detected:", FindingSeverity.Critical, 6);
+            appendTop("Warnings / possible timing behaviors:", FindingSeverity.Warning, 6);
+
+            if (crit == 0 && warn == 0)
+            {
+                sb.AppendLine("Everything looks consistent in the data pipeline. No abnormal behavior detected from step presence, wafer counts, or aggregation markers.");
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("Suggested action (based on behavior):");
+            if (Findings.Any(f => f.Title.Contains("Contact EMA Team", StringComparison.OrdinalIgnoreCase)))
+            {
+                sb.AppendLine("- Contact EMA Team to check trigger generation/pickup (trigger might be missing or not sent).");
+            }
+            else if (Findings.Any(f => f.Title.Contains("lot aggregation", StringComparison.OrdinalIgnoreCase)))
+            {
+                sb.AppendLine("- Focus on Lot Aggregation Process (aggregation record not created). Check aggregation job/log.");
+            }
+            else if (Findings.Any(f => f.Title.Contains("missing", StringComparison.OrdinalIgnoreCase) &&
+                                       f.Title.Contains("EBSO", StringComparison.OrdinalIgnoreCase)))
+            {
+                sb.AppendLine("- Focus on STEPP → EBSO pickup (loader/EMA). Verify trigger path and pickup schedule.");
+            }
+            else if (Findings.Any(f => f.Title.Contains("Wafer mismatch", StringComparison.OrdinalIgnoreCase)))
+            {
+                sb.AppendLine("- Focus on partial pickup / remaining wafer files. Confirm whether testing is still ongoing.");
+            }
+            else if (Findings.Any(f => f.Title.Contains("EBSA", StringComparison.OrdinalIgnoreCase) &&
+                                       f.Title.Contains("empty", StringComparison.OrdinalIgnoreCase)))
+            {
+                sb.AppendLine("- Focus on EBSO → EBSA forwarding/replication.");
+            }
+            else
+            {
+                sb.AppendLine("- Re-check timestamps and query freshness; could be timing-related.");
+            }
+
+            return sb.ToString();
         }
 
-        private static Color GetColor(FindingSeverity sev)
+        private static string OneLine(string s)
         {
-            return sev switch
+            if (string.IsNullOrWhiteSpace(s)) return "-";
+            s = s.Replace("\r", " ").Replace("\n", " ").Trim();
+            while (s.Contains("  ")) s = s.Replace("  ", " ");
+            return s.Length <= 220 ? s : s.Substring(0, 220) + "...";
+        }
+    }
+
+    public sealed class AlgorithmInvestigate
+    {
+        private readonly List<StdfGroupedResult> _stepp;
+        private readonly List<MeasurementGroupByStep> _ebso;
+        private readonly List<MeasurementGroupByStep> _ebsa;
+        private readonly List<MeasurementDetail> _ebsoDetail;
+        private readonly List<MeasurementDetail> _ebsaDetail;
+
+        private readonly string _currentOper;
+        private readonly string _basicType;
+        private readonly string _totalWafers;
+        private readonly string _lot;
+
+        public AlgorithmInvestigate(
+            List<StdfGroupedResult> stepp,
+            List<MeasurementGroupByStep> ebso,
+            List<MeasurementDetail> ebsoDetail,
+            List<MeasurementGroupByStep> ebsa,
+            List<MeasurementDetail> ebsaDetail,
+            string currentOper,
+            string basicType,
+            string totalWafers,
+            string lot)
+        {
+            _stepp = stepp ?? new List<StdfGroupedResult>();
+            _ebso = ebso ?? new List<MeasurementGroupByStep>();
+            _ebsa = ebsa ?? new List<MeasurementGroupByStep>();
+            _ebsoDetail = ebsoDetail ?? new List<MeasurementDetail>();
+            _ebsaDetail = ebsaDetail ?? new List<MeasurementDetail>();
+
+            _currentOper = currentOper ?? string.Empty;
+            _basicType = basicType ?? string.Empty;
+            _totalWafers = totalWafers ?? string.Empty;
+            _lot = lot ?? string.Empty;
+        }
+
+        public InvestigationReport Run()
+        {
+            var findings = new List<Finding>();
+
+            findings.Add(BuildBasicInfoFinding());
+
+            var expectedSteps = GetExpectedSteps(_currentOper);
+            findings.Add(new Finding(
+                FindingSeverity.Info,
+                "Expected test modes by operation",
+                expectedSteps.Count > 0
+                    ? $"{_currentOper} expects: {string.Join(", ", expectedSteps)}"
+                    : $"Operation '{_currentOper}' is not mapped to expected steps (S1/S2/S3). Compare based on available data only."
+            ));
+
+            findings.AddRange(InvestigateStepp(expectedSteps));
+            findings.AddRange(InvestigateEbs("EBSO", _ebso));
+            findings.AddRange(InvestigateEbs("EBSA", _ebsa));
+
+            findings.AddRange(ApplyPickupAndMismatchRules());
+            findings.AddRange(ExtraCorrelationSignals());
+            findings.AddRange(MesUiMismatchSignal());
+
+            findings.AddRange(CheckLotAggregationProcess("EBSO", _ebso, _ebsoDetail));
+            findings.AddRange(CheckLotAggregationProcess("EBSA", _ebsa, _ebsaDetail));
+
+            findings.AddRange(Rule_SteppEqualsEbsoButNoAggregation());
+
+            // ✅ NEW RULE: If pipeline looks good (EBSO+EBSA have aggregation and no mismatches),
+            // but lot still stuck in these operations -> contact EMA Team to check trigger.
+            findings.AddRange(Rule_EverythingLooksGoodButLotStillStuck_ContactEma());
+
+            return new InvestigationReport(_lot, _currentOper, _basicType, _totalWafers, findings);
+        }
+
+        // -------------------- BASIC INFO --------------------
+
+        private Finding BuildBasicInfoFinding()
+        {
+            if (string.IsNullOrWhiteSpace(_basicType) &&
+                string.IsNullOrWhiteSpace(_currentOper) &&
+                string.IsNullOrWhiteSpace(_totalWafers))
             {
-                FindingSeverity.Critical => UiCritical,
-                FindingSeverity.Warning => UiWarning,
-                FindingSeverity.Info => UiInfo,
-                _ => UiBodyText
+                return new Finding(
+                    FindingSeverity.Warning,
+                    "Basic information is missing",
+                    $"Basic info is empty. Please check lot '{_lot}' whether it is registered in MES UI.");
+            }
+
+            return new Finding(
+                FindingSeverity.Info,
+                "Basic information",
+                $"Lot '{_lot}' is registered in MES UI. BasicType='{_basicType}', TotalWafers='{_totalWafers}', CurrentOper='{_currentOper}'.");
+        }
+
+        private static List<string> GetExpectedSteps(string oper)
+        {
+            return oper switch
+            {
+                "4100" => new List<string> { "S1" },
+                "4200" => new List<string> { "S1", "S2" },
+                "4300" => new List<string> { "S1", "S2", "S3" },
+                _ => new List<string>()
             };
         }
 
-        private static string GetSeverityIcon(FindingSeverity sev)
+        // -------------------- SUMMARIES --------------------
+
+        private IEnumerable<Finding> InvestigateStepp(IReadOnlyList<string> expectedSteps)
         {
-            // Dark UI-friendly icons (no emojis required)
-            return sev switch
+            if (!_stepp.Any())
             {
-                FindingSeverity.Critical => "●",
-                FindingSeverity.Warning => "▲",
-                _ => "■"
-            };
+                yield return new Finding(
+                    FindingSeverity.Warning,
+                    "STEPP data not found",
+                    $"No STEPP record found for lot '{_lot}'. This may indicate upstream data missing or query issue.");
+                yield break;
+            }
+
+            var stepNames = _stepp
+                .Select(x => x.MEASSTP_NAME ?? "")
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Select(NormalizeStep)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(ParseStepNumber)
+                .ToList();
+
+            var testers = _stepp
+                .Select(x => x.TESTER_NAME ?? "")
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Distinct()
+                .ToList();
+
+            var testPrograms = _stepp
+                .Select(x => x.TEST_PROG_NAME ?? "")
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Distinct()
+                .ToList();
+
+            var revisions = _stepp
+                .Select(x => x.TEST_PROG_REVISION ?? "")
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Distinct()
+                .ToList();
+
+            var lastReply = MaxDate(_stepp.Select(x => x.LAST_REPLY_DATE));
+            var firstRequest = MinDate(_stepp.Select(x => x.FIRST_REQUEST_DATE));
+
+            var wafersByStep = _stepp
+                .Where(x => !string.IsNullOrWhiteSpace(x.MEASSTP_NAME))
+                .GroupBy(x => NormalizeStep(x.MEASSTP_NAME!))
+                .Select(g => new { Step = g.Key, Total = g.Sum(x => x.TOTAL_WAFER) })
+                .OrderBy(x => ParseStepNumber(x.Step))
+                .ToList();
+
+            yield return new Finding(
+                FindingSeverity.Info,
+                "STEPP summary",
+                $"TestModes: {string.Join(", ", stepNames)}{Environment.NewLine}" +
+                $"Wafers by step: {string.Join(", ", wafersByStep.Select(x => $"{x.Step}={x.Total}"))}{Environment.NewLine}" +
+                $"Testers: {testers.Count} ({PreviewList(testers, 3)}){Environment.NewLine}" +
+                $"TestPrograms: {PreviewList(testPrograms, 2)}{Environment.NewLine}" +
+                $"TestProgramRevision: {PreviewList(revisions, 3)}{Environment.NewLine}" +
+                $"FirstRequestDate: {FormatDate(firstRequest)}{Environment.NewLine}" +
+                $"LastReplyDate: {FormatDate(lastReply)}"
+            );
+
+            if (expectedSteps.Count > 0)
+            {
+                var missing = expectedSteps.Except(stepNames, StringComparer.OrdinalIgnoreCase).ToList();
+                if (missing.Any())
+                {
+                    yield return new Finding(
+                        FindingSeverity.Warning,
+                        "STEPP missing expected test mode(s)",
+                        $"Expected: {string.Join(", ", expectedSteps)} but STEPP has: {string.Join(", ", stepNames)}. Missing: {string.Join(", ", missing)}");
+                }
+            }
         }
 
-        private static void AppendLine(RichTextBox rtb, string text, Color color, bool bold = false)
+        private IEnumerable<Finding> InvestigateEbs(string systemName, List<MeasurementGroupByStep> data)
         {
-            var start = rtb.TextLength;
-            rtb.AppendText(text + Environment.NewLine);
-            var end = rtb.TextLength;
+            if (!data.Any())
+            {
+                yield return new Finding(
+                    FindingSeverity.Warning,
+                    $"{systemName} data not found",
+                    $"No {systemName} record found for lot '{_lot}'. If STEPP exists, this could indicate pipeline transfer/aggregation issue.");
+                yield break;
+            }
 
-            rtb.Select(start, end - start);
-            rtb.SelectionColor = color;
+            var steps = data
+                .Select(x => x.STEP ?? "")
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Select(NormalizeStep)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(ParseStepNumber)
+                .ToList();
 
-            var current = rtb.SelectionFont ?? rtb.Font;
-            rtb.SelectionFont = new Font(current, bold ? FontStyle.Bold : FontStyle.Regular);
+            var wafersByStep = data
+                .Where(x => !string.IsNullOrWhiteSpace(x.STEP))
+                .GroupBy(x => NormalizeStep(x.STEP!))
+                .Select(g => new { Step = g.Key, Total = g.Sum(x => x.WAFER_COUNT) })
+                .OrderBy(x => ParseStepNumber(x.Step))
+                .ToList();
 
-            rtb.SelectionLength = 0;
-            rtb.SelectionStart = rtb.TextLength;
-            rtb.SelectionColor = rtb.ForeColor;
+            var latestLoading = MaxDate(data.Select(x => x.LATEST_LOADING_TIME));
+
+            yield return new Finding(
+                FindingSeverity.Info,
+                $"{systemName} summary",
+                $"Steps: {string.Join(", ", steps)}{Environment.NewLine}" +
+                $"Wafers by step: {string.Join(", ", wafersByStep.Select(x => $"{x.Step}={x.Total}"))}{Environment.NewLine}" +
+                $"LatestLoadingTime: {FormatDate(latestLoading)}");
         }
+
+        // -------------------- RULES: PRESENCE + WAFER MISMATCH --------------------
+
+        private IEnumerable<Finding> ApplyPickupAndMismatchRules()
+        {
+            var steppSteps = GetStepsFromStepp(_stepp);
+            var ebsoSteps = GetStepsFromEbs(_ebso);
+            var ebsaSteps = GetStepsFromEbs(_ebsa);
+
+            var steppWafers = GetWafersByStepFromStepp(_stepp);
+            var ebsoWafers = GetWafersByStepFromEbs(_ebso);
+            var ebsaWafers = GetWafersByStepFromEbs(_ebsa);
+
+            foreach (var step in new[] { "S1", "S2", "S3" })
+            {
+                if (steppSteps.Contains(step) && !ebsoSteps.Contains(step))
+                {
+                    yield return new Finding(
+                        FindingSeverity.Critical,
+                        $"STEPP has {step} but EBSO missing {step}",
+                        "Conclusion: data can't process in loader Module OR EMA Script can't pick up file.");
+                }
+
+                if (steppSteps.Contains(step) && ebsoSteps.Contains(step))
+                {
+                    var st = steppWafers.TryGetValue(step, out var a) ? a : 0;
+                    var eo = ebsoWafers.TryGetValue(step, out var b) ? b : 0;
+
+                    if (st != eo)
+                    {
+                        yield return new Finding(
+                            FindingSeverity.Critical,
+                            $"Wafer mismatch at {step} (STEPP vs EBSO)",
+                            $"STEPP {step} wafers={st}, EBSO {step} wafers={eo}.{Environment.NewLine}" +
+                            "Conclusion: data can't process in loader Module of EBSO OR EMA Script can't pick up remaining wafer files from STEPP.");
+                    }
+                }
+            }
+
+            foreach (var step in new[] { "S1", "S2", "S3" })
+            {
+                if (ebsoSteps.Contains(step) && !ebsaSteps.Contains(step))
+                {
+                    yield return new Finding(
+                        FindingSeverity.Critical,
+                        $"EBSO has {step} but EBSA missing {step}",
+                        "Conclusion: data can't process in loader Module of EBSA OR EMA Script can't pick up file from EBSO.");
+                }
+
+                if (ebsoSteps.Contains(step) && ebsaSteps.Contains(step))
+                {
+                    var eo = ebsoWafers.TryGetValue(step, out var a) ? a : 0;
+                    var ea = ebsaWafers.TryGetValue(step, out var b) ? b : 0;
+
+                    if (eo != ea)
+                    {
+                        yield return new Finding(
+                            FindingSeverity.Critical,
+                            $"Wafer mismatch at {step} (EBSO vs EBSA)",
+                            $"EBSO {step} wafers={eo}, EBSA {step} wafers={ea}.{Environment.NewLine}" +
+                            "Conclusion: data can't process in loader Module of EBSA OR EMA Script can't pick up remaining wafer files from EBSO.");
+                    }
+                }
+            }
+        }
+
+        // -------------------- AGGREGATION CHECK (DETAIL) --------------------
+
+        private IEnumerable<Finding> CheckLotAggregationProcess(
+            string systemName,
+            List<MeasurementGroupByStep> group,
+            List<MeasurementDetail> detail)
+        {
+            if (group == null || group.Count == 0) yield break;
+
+            if (detail == null || detail.Count == 0)
+            {
+                yield return new Finding(
+                    FindingSeverity.Info,
+                    $"{systemName} aggregation check skipped",
+                    $"No {systemName} detail records provided, cannot verify lot aggregation marker (WAFERNUMBER empty).");
+                yield break;
+            }
+
+            var steps = group
+                .Select(x => x.STEP ?? "")
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Select(NormalizeStep)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(ParseStepNumber)
+                .ToList();
+
+            foreach (var step in steps)
+            {
+                var hasMarker = detail.Any(d =>
+                    string.Equals(NormalizeStep(d.STEP ?? ""), step, StringComparison.OrdinalIgnoreCase) &&
+                    string.IsNullOrWhiteSpace(d.WAFERNUMBER));
+
+                if (!hasMarker)
+                {
+                    yield return new Finding(
+                        FindingSeverity.Warning,
+                        $"{systemName} lot aggregation not confirmed ({step})",
+                        $"No record with empty WAFERNUMBER found for {step}.{Environment.NewLine}" +
+                        "Possible normal case: remaining wafers still testing OR aggregation not completed yet.");
+                }
+            }
+        }
+
+        // ✅ wafers match but EBSO has NO aggregation record => Lot Aggregation Process issue
+        private IEnumerable<Finding> Rule_SteppEqualsEbsoButNoAggregation()
+        {
+            if (!_stepp.Any() || !_ebso.Any()) yield break;
+            if (_ebsoDetail == null || _ebsoDetail.Count == 0) yield break;
+
+            var steppWafers = GetWafersByStepFromStepp(_stepp);
+            var ebsoWafers = GetWafersByStepFromEbs(_ebso);
+
+            foreach (var step in new[] { "S1", "S2", "S3" })
+            {
+                if (!steppWafers.TryGetValue(step, out var st)) continue;
+                if (!ebsoWafers.TryGetValue(step, out var eo)) continue;
+
+                if (st == eo && st > 0)
+                {
+                    var hasAggregationMarker = _ebsoDetail.Any(d =>
+                        string.Equals(NormalizeStep(d.STEP ?? ""), step, StringComparison.OrdinalIgnoreCase) &&
+                        string.IsNullOrWhiteSpace(d.WAFERNUMBER));
+
+                    if (!hasAggregationMarker)
+                    {
+                        yield return new Finding(
+                            FindingSeverity.Critical,
+                            $"EBSO missing lot aggregation record although wafers match ({step})",
+                            $"STEPP {step} wafers={st} and EBSO {step} wafers={eo} (match), but no lot aggregation marker record found (WAFERNUMBER empty).{Environment.NewLine}" +
+                            "This can happen due to Lot Aggregation Process issue (aggregation record not created). " +
+                            "Normal case: after finish S1 with 25 wafers it should create 1 record of lot aggregation.");
+                    }
+                }
+            }
+        }
+
+        // ✅ NEW RULE (your request):
+        // If EBSO and EBSA look good (no critical mismatch findings),
+        // AND both have lot aggregation markers,
+        // BUT lot stuck at operations: "4100,4130,4200,4230,4300,4330"
+        // => contact EMA Team to check trigger.
+        private IEnumerable<Finding> Rule_EverythingLooksGoodButLotStillStuck_ContactEma()
+        {
+            var stuckOpers = new HashSet<string>(new[] { "4100", "4130", "4200", "4230", "4300", "4330" }, StringComparer.OrdinalIgnoreCase);
+            if (!stuckOpers.Contains((_currentOper ?? "").Trim())) yield break;
+
+            // Must have data in both EBSO & EBSA
+            if (!_ebso.Any() || !_ebsa.Any()) yield break;
+
+            // Must have aggregation marker in both
+            var ebsoHasAgg = HasAnyAggregationMarker(_ebso, _ebsoDetail);
+            var ebsaHasAgg = HasAnyAggregationMarker(_ebsa, _ebsaDetail);
+            if (!ebsoHasAgg || !ebsaHasAgg) yield break;
+
+            // "Everything look good": no wafer mismatch between STEPP/EBSO and EBSO/EBSA,
+            // and no missing-step criticals.
+            var mismatches = GetWaferMismatchCount();
+            if (mismatches > 0) yield break;
+
+            yield return new Finding(
+                FindingSeverity.Critical,
+                "Contact EMA Team: Trigger check required",
+                $"EBSO and EBSA look good: both have data and lot aggregation marker(s) are present, and no wafer mismatch was detected.{Environment.NewLine}" +
+                $"However, lot '{_lot}' is still stuck at operation '{_currentOper}' (stuck list: 4100/4130/4200/4230/4300/4330).{Environment.NewLine}" +
+                "Conclusion: Please contact EMA Team to check trigger generation/pickup (trigger may be missing, delayed, or not sent).");
+        }
+
+        private int GetWaferMismatchCount()
+        {
+            var steppWafers = GetWafersByStepFromStepp(_stepp);
+            var ebsoWafers = GetWafersByStepFromEbs(_ebso);
+            var ebsaWafers = GetWafersByStepFromEbs(_ebsa);
+
+            int mismatch = 0;
+            foreach (var step in new[] { "S1", "S2", "S3" })
+            {
+                if (steppWafers.ContainsKey(step) && ebsoWafers.ContainsKey(step) && steppWafers[step] != ebsoWafers[step])
+                    mismatch++;
+
+                if (ebsoWafers.ContainsKey(step) && ebsaWafers.ContainsKey(step) && ebsoWafers[step] != ebsaWafers[step])
+                    mismatch++;
+            }
+
+            // Also treat missing-step cases as "not good"
+            var steppSteps = GetStepsFromStepp(_stepp);
+            var ebsoSteps = GetStepsFromEbs(_ebso);
+            var ebsaSteps = GetStepsFromEbs(_ebsa);
+
+            foreach (var step in new[] { "S1", "S2", "S3" })
+            {
+                if (steppSteps.Contains(step) && !ebsoSteps.Contains(step)) mismatch++;
+                if (ebsoSteps.Contains(step) && !ebsaSteps.Contains(step)) mismatch++;
+            }
+
+            return mismatch;
+        }
+
+        private static bool HasAnyAggregationMarker(List<MeasurementGroupByStep> group, List<MeasurementDetail> detail)
+        {
+            if (group == null || group.Count == 0) return false;
+            if (detail == null || detail.Count == 0) return false;
+
+            var steps = group
+                .Select(x => (x.STEP ?? "").Trim().ToUpperInvariant())
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var step in steps)
+            {
+                var hasMarker = detail.Any(d =>
+                    string.Equals((d.STEP ?? "").Trim().ToUpperInvariant(), step, StringComparison.OrdinalIgnoreCase) &&
+                    string.IsNullOrWhiteSpace(d.WAFERNUMBER));
+
+                if (hasMarker) return true;
+            }
+
+            return false;
+        }
+
+        // -------------------- EXTRA SIGNALS --------------------
+
+        private IEnumerable<Finding> ExtraCorrelationSignals()
+        {
+            var steppLastReply = MaxDate(_stepp.Select(x => x.LAST_REPLY_DATE));
+            if (steppLastReply != null && _stepp.Any() && !_ebso.Any())
+            {
+                yield return new Finding(
+                    FindingSeverity.Critical,
+                    "Strong signal: STEPP updated but EBSO empty",
+                    $"STEPP last reply at {FormatDate(steppLastReply)} but EBSO has no data.{Environment.NewLine}" +
+                    "Highly suspect loader/EMA pickup issue between STEPP and EBSO.");
+            }
+
+            if (_ebso.Any() && !_ebsa.Any())
+            {
+                yield return new Finding(
+                    FindingSeverity.Warning,
+                    "Signal: EBSO has data but EBSA empty",
+                    "EBSO contains data but EBSA has no data. Suspect forwarding/replication/pickup issue from EBSO to EBSA.");
+            }
+
+            var ebsoLatest = MaxDate(_ebso.Select(x => x.LATEST_LOADING_TIME));
+            var ebsaLatest = MaxDate(_ebsa.Select(x => x.LATEST_LOADING_TIME));
+            if (ebsoLatest != null && ebsaLatest != null && ebsoLatest > ebsaLatest)
+            {
+                yield return new Finding(
+                    FindingSeverity.Info,
+                    "Loading time comparison",
+                    $"EBSO latest loading time ({FormatDate(ebsoLatest)}) is newer than EBSA ({FormatDate(ebsaLatest)}). " +
+                    "If mismatch exists, EBSA may still be processing.");
+            }
+        }
+
+        // -------------------- MES UI MISMATCH SIGNAL --------------------
+
+        private IEnumerable<Finding> MesUiMismatchSignal()
+        {
+            if (string.IsNullOrWhiteSpace(_totalWafers)) yield break;
+
+            var mesTotal = SafeInt(_totalWafers);
+            if (mesTotal <= 0) yield break;
+            if (!_stepp.Any()) yield break;
+
+            var latestStep = _stepp
+                .Select(x => NormalizeStep(x.MEASSTP_NAME ?? ""))
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .OrderBy(ParseStepNumber)
+                .LastOrDefault();
+
+            if (string.IsNullOrWhiteSpace(latestStep)) yield break;
+
+            var steppLatestTotal = _stepp
+                .Where(x => string.Equals(NormalizeStep(x.MEASSTP_NAME ?? ""), latestStep, StringComparison.OrdinalIgnoreCase))
+                .Sum(x => x.TOTAL_WAFER);
+
+            if (steppLatestTotal != 0 && steppLatestTotal != mesTotal)
+            {
+                yield return new Finding(
+                    FindingSeverity.Warning,
+                    "MES UI wafer count mismatch (possible normal)",
+                    $"MES UI total wafers={mesTotal}, STEPP latest step '{latestStep}' wafers={steppLatestTotal}.{Environment.NewLine}" +
+                    "Possible reason: lot is still testing in the test floor OR partial upload/pickup timing.");
+            }
+        }
+
+        // -------------------- DATA VIEW HELPERS --------------------
+
+        private static HashSet<string> GetStepsFromStepp(List<StdfGroupedResult> stepp)
+            => stepp.Select(x => x.MEASSTP_NAME ?? "")
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Select(NormalizeStep)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        private static HashSet<string> GetStepsFromEbs(List<MeasurementGroupByStep> ebs)
+            => ebs.Select(x => x.STEP ?? "")
+                  .Where(s => !string.IsNullOrWhiteSpace(s))
+                  .Select(NormalizeStep)
+                  .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        private static Dictionary<string, int> GetWafersByStepFromStepp(List<StdfGroupedResult> stepp)
+            => stepp.Where(x => !string.IsNullOrWhiteSpace(x.MEASSTP_NAME))
+                    .GroupBy(x => NormalizeStep(x.MEASSTP_NAME!))
+                    .ToDictionary(g => g.Key, g => g.Sum(x => x.TOTAL_WAFER), StringComparer.OrdinalIgnoreCase);
+
+        private static Dictionary<string, int> GetWafersByStepFromEbs(List<MeasurementGroupByStep> ebs)
+            => ebs.Where(x => !string.IsNullOrWhiteSpace(x.STEP))
+                  .GroupBy(x => NormalizeStep(x.STEP!))
+                  .ToDictionary(g => g.Key, g => g.Sum(x => x.WAFER_COUNT), StringComparer.OrdinalIgnoreCase);
+
+        // -------------------- GENERAL HELPERS --------------------
+
+        private static string NormalizeStep(string step) => (step ?? "").Trim().ToUpperInvariant();
+
+        private static int ParseStepNumber(string step)
+        {
+            if (string.IsNullOrWhiteSpace(step)) return 9999;
+            var m = Regex.Match(step.Trim(), @"(\d+)");
+            return m.Success && int.TryParse(m.Groups[1].Value, out var n) ? n : 9999;
+        }
+
+        private static int SafeInt(string? v)
+        {
+            if (string.IsNullOrWhiteSpace(v)) return 0;
+            if (int.TryParse(v.Trim(), out var n)) return n;
+            if (double.TryParse(v.Trim(), out var d)) return (int)Math.Round(d);
+            return 0;
+        }
+
+        private static DateTime? MaxDate(IEnumerable<DateTime?> dates)
+        {
+            DateTime? max = null;
+            foreach (var d in dates)
+            {
+                if (d == null) continue;
+                if (max == null || d.Value > max.Value) max = d.Value;
+            }
+            return max;
+        }
+
+        private static DateTime? MinDate(IEnumerable<DateTime?> dates)
+        {
+            DateTime? min = null;
+            foreach (var d in dates)
+            {
+                if (d == null) continue;
+                if (min == null || d.Value < min.Value) min = d.Value;
+            }
+            return min;
+        }
+
+        private static string FormatDate(DateTime? dt)
+            => dt == null ? "-" : dt.Value.ToString("yyyy-MM-dd HH:mm:ss");
+
+        private static string PreviewList(List<string> items, int max)
+        {
+            if (items.Count == 0) return "-";
+            return items.Count <= max ? string.Join(", ", items) : string.Join(", ", items.Take(max)) + ", ...";
+        }
+    }
+
+    public sealed class MeasurementDetail
+    {
+        public string LOT_ID { get; init; } = "";
+        public string MOTHER_LOT { get; init; } = "";
+        public string WAFERNUMBER { get; init; } = "";
+        public string STEP { get; init; } = "";
+        public string SUB_STEP { get; init; } = "";
+        public string TEST_TYPE { get; init; } = "";
+        public string MEASCAT_NAME { get; init; } = "";
+        public DateTime? TIMESTAMP_BEGIN { get; init; }
+        public DateTime? TIMESTAMP_END { get; init; }
+        public DateTime? TIMESTAMP_LOADING { get; init; }
+        public int? COMPONENT_SEQ { get; init; }
+        public string MEAS_COUNTER { get; init; } = "";
+        public string CHIP_DATA_ATTACHED { get; init; } = "";
+        public string VISIBLE { get; init; } = "";
+        public long MEAS_ID { get; init; }
+        public long MEAS_ALLOWED { get; init; }
     }
 }
