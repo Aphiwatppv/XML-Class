@@ -1,0 +1,195 @@
+using InvestigationServices.ModelEBSO;
+
+namespace BKGEBSInvestigation.InvestigationServicesUserController
+{
+    public class AlgorithmInvestigate
+    {
+        private List<StdfGroupedResult> _stepp = new List<StdfGroupedResult>();
+        private List<MeasurementGroupByStep> _ebso = new List<MeasurementGroupByStep>();
+        private List<MeasurementGroupByStep> _ebsa = new List<MeasurementGroupByStep>();
+        private string _currentOper = string.Empty;
+        private string _basicType = string.Empty;
+        private string _totalWafers = string.Empty;
+        private string _lot = string.Empty;
+
+        private string _Firsthypothesis = string.Empty;
+        private string _InvestigateStepp = string.Empty;
+
+        private string _InvestigateEBSO = string.Empty;
+
+        private string _InvestigateEBSA = string.Empty;
+
+        private string _combineInvestigation = string.Empty;
+        public AlgorithmInvestigate(List<StdfGroupedResult> stepp, List<MeasurementGroupByStep> ebso, List<MeasurementGroupByStep> ebsa, string currentOper, string basicType, string totalWafers, string lot)
+        {
+            _stepp = stepp;
+            _ebso = ebso;
+            _ebsa = ebsa;
+            _currentOper = currentOper;
+            _basicType = basicType;
+            _totalWafers = totalWafers;
+            _lot = lot;
+        }
+
+
+        private void CheckbasicInfomation()
+        {
+            if (_basicType == string.Empty && _currentOper == string.Empty && _totalWafers == string.Empty)
+            {
+                _Firsthypothesis = $"Basic Informaion is Empty , Please check {_lot} whether register to the MES UI ? ";
+            }
+            else
+            {
+                _Firsthypothesis = $"{_lot} lot was register to MES UI with {_basicType} Basic Type and {_totalWafers} wafers and current operation is {_currentOper}";
+            }
+        }
+
+        private void InvestigationEntireSystem()
+        {
+            if (_currentOper == "4100") // In concept it should have S1 Testmode
+            {
+                if (_stepp.Any())  //Investigate STEPP Server First
+                {
+                    var steppMaximumTestMode = _stepp.Select(x => x.MEASSTP_NAME).Max(); //eg S1,S2,S3
+                    var steppTestMode = _stepp.Select(x => x.MEASSTP_NAME); //eg S1,
+                    var stepptotalWaferOfMaximumTestMode = from totalwafer in _stepp
+                                                       .Where(x => x.MEASSTP_NAME == steppMaximumTestMode);
+
+                    var stepptotalWaferOfTestMode = _stepp.Select(x => x.TOTAL_WAFER);
+
+                    var steppTestprogram = _stepp.Select(x => x.TEST_PROG_NAME).Max(); //eg S1,
+
+                    var listofTester = _stepp.Select(x => x.TESTER_NAME);
+
+                    _InvestigateStepp = $"The data of {_lot} lot was tested by {listofTester.Count()} Testers ({listofTester.ToArray()[0]} ..) " +
+                        $"This lot with {steppTestprogram} testprogram with {steppTestMode}  TestMode {stepptotalWaferOfTestMode}" +
+                        $"This lot with {steppTestprogram} testprogram with {steppTestMode}  TestMode {stepptotalWaferOfTestMode}..."; // eg 
+
+                    if (_ebso.Any())
+                    {
+                        var ebsoMaximumTestMode = _ebso.Select(x => x.STEP).Max(); //eg S1,
+                        var ebsototalWaferOfMaximumTestMode = from totalwafer in _ebso
+                                                           .Where(x => x.STEP == ebsoMaximumTestMode);
+
+                        if (_ebsa.Any())
+                        {
+
+                        }
+
+                    }
+
+
+                }
+            }
+            else if (_currentOper == "4200") // In concept it should have S1,S2 Testmode
+            {
+                if (_stepp.Any())  //Investigate STEPP Server First
+                {
+                    var steppMaximumTestMode = _stepp.Select(x => x.MEASSTP_NAME).Max(); //eg S1,S2,S3
+                    var steppTestMode = _stepp.Select(x => x.MEASSTP_NAME); //eg S1,
+                    var stepptotalWaferOfMaximumTestMode = from totalwafer in _stepp
+                                                       .Where(x => x.MEASSTP_NAME == steppMaximumTestMode);
+
+                    var stepptotalWaferOfTestMode = _stepp.Select(x => x.TOTAL_WAFER);
+
+                    var steppTestprogram = _stepp.Select(x => x.TEST_PROG_NAME).Max(); //eg S1,
+
+                    var listofTester = _stepp.Select(x => x.TESTER_NAME);
+
+                    _InvestigateStepp = $"The data of {_lot} lot was tested by {listofTester.Count()} Testers ({listofTester.ToArray()[0]} ..) " +
+                        $"This lot with {steppTestprogram} testprogram with {steppTestMode}  TestMode {stepptotalWaferOfTestMode}" +
+                        $"This lot with {steppTestprogram} testprogram with {steppTestMode}  TestMode {stepptotalWaferOfTestMode}..."; // eg 
+
+                    if (_ebso.Any())
+                    {
+                        var ebsoMaximumTestMode = _ebso.Select(x => x.STEP).Max(); //eg S1,
+                        var ebsototalWaferOfMaximumTestMode = from totalwafer in _ebso
+                                                           .Where(x => x.STEP == ebsoMaximumTestMode);
+
+                        if (_ebsa.Any())
+                        {
+
+                        }
+
+                    }
+
+
+                }
+            }
+            else if (_currentOper == "4300") // In concept it should have S1,S2,S3 Testmode
+            {
+                if (_stepp.Any())  //Investigate STEPP Server First
+                {
+                    var steppMaximumTestMode = _stepp.Select(x => x.MEASSTP_NAME).Max(); ///eg S1,S2,S3
+                    var steppTestMode = _stepp.Select(x => x.MEASSTP_NAME); //eg S1,
+                    var stepptotalWaferOfMaximumTestMode = from totalwafer in _stepp
+                                                       .Where(x => x.MEASSTP_NAME == steppMaximumTestMode);
+
+                    var stepptotalWaferOfTestMode = _stepp.Select(x => x.TOTAL_WAFER);
+
+                    var steppTestprogram = _stepp.Select(x => x.TEST_PROG_NAME).Max(); //eg S1,
+
+                    var listofTester = _stepp.Select(x => x.TESTER_NAME);
+
+                    _InvestigateStepp = $"The data of {_lot} lot was tested by {listofTester.Count()} Testers ({listofTester.ToArray()[0]} ..) " +
+                        $"This lot with {steppTestprogram} testprogram with {steppTestMode}  TestMode {stepptotalWaferOfTestMode}" +
+                        $"This lot with {steppTestprogram} testprogram with {steppTestMode}  TestMode {stepptotalWaferOfTestMode}..."; // eg 
+
+                    if (_ebso.Any())
+                    {
+                        var ebsoMaximumTestMode = _ebso.Select(x => x.STEP).Max(); //eg S1,
+                        var ebsototalWaferOfMaximumTestMode = from totalwafer in _ebso
+                                                           .Where(x => x.STEP == ebsoMaximumTestMode);
+
+                        if (_ebsa.Any())
+                        {
+
+                        }
+
+                    }
+
+
+                }
+            }
+            else
+            {
+
+                if (_stepp.Any())  //Investigate STEPP Server First
+                {
+                    var steppMaximumTestMode = _stepp.Select(x => x.MEASSTP_NAME).Max(); ///eg S1,S2,S3
+                    var steppTestMode = _stepp.Select(x => x.MEASSTP_NAME); //eg S1,
+                    var stepptotalWaferOfMaximumTestMode = from totalwafer in _stepp
+                                                       .Where(x => x.MEASSTP_NAME == steppMaximumTestMode);
+
+                    var stepptotalWaferOfTestMode = _stepp.Select(x => x.TOTAL_WAFER);
+
+                    var steppTestprogram = _stepp.Select(x => x.TEST_PROG_NAME).Max(); //eg S1,
+
+                    var listofTester = _stepp.Select(x => x.TESTER_NAME);
+
+                    _InvestigateStepp = $"The data of {_lot} lot was tested by {listofTester.Count()} Testers ({listofTester.ToArray()[0]} ..) " +
+                        $"This lot with {steppTestprogram} testprogram with {steppTestMode}  TestMode {stepptotalWaferOfTestMode}" +
+                        $"This lot with {steppTestprogram} testprogram with {steppTestMode}  TestMode {stepptotalWaferOfTestMode}..."; // eg 
+
+                    if (_ebso.Any())
+                    {
+                        var ebsoMaximumTestMode = _ebso.Select(x => x.STEP).Max(); //eg S1,
+                        var ebsototalWaferOfMaximumTestMode = from totalwafer in _ebso
+                                                           .Where(x => x.STEP == ebsoMaximumTestMode);
+
+
+                        if (_ebsa.Any())
+                        {
+
+                        }
+                    }
+
+
+                }
+
+            }
+        }
+
+
+    }
+}
