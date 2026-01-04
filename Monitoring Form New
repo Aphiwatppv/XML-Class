@@ -1,75 +1,969 @@
-private void SetDiskUsageUI(
-    Label labelTotal,
-    Label labelMount,
-    Label labelPercent,
-    string size,          // e.g. "900G"
-    string mountedOn,     // e.g. "/srv/ebsdba"
-    string filesystem,    // e.g. "/dev/sda1"
-    string usePercent,    // e.g. "45%"
-    string used,          // e.g. "405G"
-    ProgressBar progressBar = null)
+namespace BKGEBSInvestigation.WTUserController
 {
-    // ---------------- Base text ----------------
-    labelTotal.Text = $"Total: {size ?? "-"}   Used: {used ?? "-"}";
-    labelMount.Text = $"Mount: {mountedOn ?? "-"}";
-    labelTotal.ForeColor = Flat47Style.TextPrimary;
-    labelMount.ForeColor = Flat47Style.TextPrimary;
-
-    // ---------------- Parse percentage ----------------
-    int percentValue = -1;
-    if (!string.IsNullOrWhiteSpace(usePercent))
+    partial class CheckStatusController
     {
-        var cleaned = usePercent.Replace("%", "").Trim();
-        int.TryParse(cleaned, out percentValue);
+        /// <summary> 
+        /// Required designer variable.
+        /// </summary>
+        private System.ComponentModel.IContainer components = null;
+
+        /// <summary> 
+        /// Clean up any resources being used.
+        /// </summary>
+        /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && (components != null))
+            {
+                components.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+
+        #region Component Designer generated code
+
+        /// <summary> 
+        /// Required method for Designer support - do not modify 
+        /// the contents of this method with the code editor.
+        /// </summary>
+        private void InitializeComponent()
+        {
+            panel1 = new Panel();
+            labelPoolStatusEBSO = new Label();
+            label2 = new Label();
+            countEBSOTranferPoollabel = new Label();
+            labelEBSOPathPool = new Label();
+            countEBSOerrorlabel = new Label();
+            labelEBSOPathError = new Label();
+            countEBSOinputlabel = new Label();
+            labelEBSOPathInput = new Label();
+            countEBSOIn_worklabel = new Label();
+            labelEBSOPathInWork = new Label();
+            panel3 = new Panel();
+            labelStatusInworkEBSO = new Label();
+            label4 = new Label();
+            panel4 = new Panel();
+            labelStatusInputEBSO = new Label();
+            label6 = new Label();
+            panel5 = new Panel();
+            labelStatusErrorEBSO = new Label();
+            label8 = new Label();
+            panel2 = new Panel();
+            labelStatusErrorEBSA = new Label();
+            countEBSAerrorlabel = new Label();
+            label10 = new Label();
+            labelEBSAPathError = new Label();
+            panel6 = new Panel();
+            labelStatusInputEBSA = new Label();
+            label12 = new Label();
+            countEBSAinputlabel = new Label();
+            labelEBSAPathInput = new Label();
+            panel7 = new Panel();
+            labelStatusInworkEBSA = new Label();
+            countEBSAIn_worklabel = new Label();
+            label16 = new Label();
+            labelEBSAPathInWork = new Label();
+            label18 = new Label();
+            RefreshBtn = new Button();
+            panelEBSOCrontab = new Panel();
+            _badgeEBSO = new Label();
+            buttonCrontabO = new Button();
+            label5 = new Label();
+            panelEBSACrontab = new Panel();
+            _badgeEBSA = new Label();
+            buttonCrontabA = new Button();
+            label7 = new Label();
+            panelEBSOXe1Crontab = new Panel();
+            _badgeEBSOXe1 = new Label();
+            buttonCrontabOXe1 = new Button();
+            label1 = new Label();
+            panelEBSOXe2Crontab = new Panel();
+            _badgeEBSOXe2 = new Label();
+            buttonCrontabOXe2 = new Button();
+            label3 = new Label();
+            buttonProcessEBSO = new Button();
+            buttonProcessEBSA = new Button();
+            buttonCheckTP = new Button();
+            panelEBSODisk = new Panel();
+            labelEBSOTotalDisk = new Label();
+            labelPercentageUsageEBSO = new Label();
+            labelEBSODisk = new Label();
+            labelEBSOMPoint = new Label();
+            progressBarDiskEBSO = new ProgressBar();
+            panelEBSADisk = new Panel();
+            progressBarDiskEBSA = new ProgressBar();
+            labelEBSATotalDisk = new Label();
+            labelPercentageUsageEBSA = new Label();
+            label13 = new Label();
+            labelEBSAMPoint = new Label();
+            panel1.SuspendLayout();
+            panel3.SuspendLayout();
+            panel4.SuspendLayout();
+            panel5.SuspendLayout();
+            panel2.SuspendLayout();
+            panel6.SuspendLayout();
+            panel7.SuspendLayout();
+            panelEBSOCrontab.SuspendLayout();
+            panelEBSACrontab.SuspendLayout();
+            panelEBSOXe1Crontab.SuspendLayout();
+            panelEBSOXe2Crontab.SuspendLayout();
+            panelEBSODisk.SuspendLayout();
+            panelEBSADisk.SuspendLayout();
+            SuspendLayout();
+            // 
+            // panel1
+            // 
+            panel1.BackColor = Color.White;
+            panel1.Controls.Add(labelPoolStatusEBSO);
+            panel1.Controls.Add(label2);
+            panel1.Controls.Add(countEBSOTranferPoollabel);
+            panel1.Controls.Add(labelEBSOPathPool);
+            panel1.Location = new Point(65, 204);
+            panel1.Name = "panel1";
+            panel1.Size = new Size(539, 96);
+            panel1.TabIndex = 4;
+            // 
+            // labelPoolStatusEBSO
+            // 
+            labelPoolStatusEBSO.AutoSize = true;
+            labelPoolStatusEBSO.Location = new Point(37, 60);
+            labelPoolStatusEBSO.Name = "labelPoolStatusEBSO";
+            labelPoolStatusEBSO.Size = new Size(53, 15);
+            labelPoolStatusEBSO.TabIndex = 9;
+            labelPoolStatusEBSO.Text = "STATUS :";
+            // 
+            // label2
+            // 
+            label2.AutoSize = true;
+            label2.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            label2.Location = new Point(37, 11);
+            label2.Name = "label2";
+            label2.Size = new Size(209, 19);
+            label2.TabIndex = 8;
+            label2.Text = "EBSO : TRANSFER_POOL_EBSA";
+            // 
+            // countEBSOTranferPoollabel
+            // 
+            countEBSOTranferPoollabel.AutoSize = true;
+            countEBSOTranferPoollabel.Font = new Font("Segoe UI", 20.25F, FontStyle.Regular, GraphicsUnit.Point, 0);
+            countEBSOTranferPoollabel.ForeColor = Color.FromArgb(47, 47, 47);
+            countEBSOTranferPoollabel.Location = new Point(424, 20);
+            countEBSOTranferPoollabel.Name = "countEBSOTranferPoollabel";
+            countEBSOTranferPoollabel.Size = new Size(89, 37);
+            countEBSOTranferPoollabel.TabIndex = 1;
+            countEBSOTranferPoollabel.Text = "Count";
+            // 
+            // labelEBSOPathPool
+            // 
+            labelEBSOPathPool.AutoSize = true;
+            labelEBSOPathPool.Location = new Point(37, 38);
+            labelEBSOPathPool.Name = "labelEBSOPathPool";
+            labelEBSOPathPool.Size = new Size(40, 15);
+            labelEBSOPathPool.TabIndex = 0;
+            labelEBSOPathPool.Text = "Path : ";
+            // 
+            // countEBSOerrorlabel
+            // 
+            countEBSOerrorlabel.AutoSize = true;
+            countEBSOerrorlabel.Font = new Font("Segoe UI", 20.25F, FontStyle.Regular, GraphicsUnit.Point, 0);
+            countEBSOerrorlabel.ForeColor = Color.FromArgb(47, 47, 47);
+            countEBSOerrorlabel.Location = new Point(424, 16);
+            countEBSOerrorlabel.Name = "countEBSOerrorlabel";
+            countEBSOerrorlabel.Size = new Size(89, 37);
+            countEBSOerrorlabel.TabIndex = 7;
+            countEBSOerrorlabel.Text = "Count";
+            countEBSOerrorlabel.Click += countEBSOerrorlabel_Click;
+            // 
+            // labelEBSOPathError
+            // 
+            labelEBSOPathError.AutoSize = true;
+            labelEBSOPathError.Location = new Point(37, 38);
+            labelEBSOPathError.Name = "labelEBSOPathError";
+            labelEBSOPathError.Size = new Size(40, 15);
+            labelEBSOPathError.TabIndex = 6;
+            labelEBSOPathError.Text = "Path : ";
+            // 
+            // countEBSOinputlabel
+            // 
+            countEBSOinputlabel.AutoSize = true;
+            countEBSOinputlabel.Font = new Font("Segoe UI", 20.25F, FontStyle.Regular, GraphicsUnit.Point, 0);
+            countEBSOinputlabel.ForeColor = Color.FromArgb(47, 47, 47);
+            countEBSOinputlabel.Location = new Point(424, 20);
+            countEBSOinputlabel.Name = "countEBSOinputlabel";
+            countEBSOinputlabel.Size = new Size(89, 37);
+            countEBSOinputlabel.TabIndex = 5;
+            countEBSOinputlabel.Text = "Count";
+            // 
+            // labelEBSOPathInput
+            // 
+            labelEBSOPathInput.AutoSize = true;
+            labelEBSOPathInput.Location = new Point(37, 42);
+            labelEBSOPathInput.Name = "labelEBSOPathInput";
+            labelEBSOPathInput.Size = new Size(37, 15);
+            labelEBSOPathInput.TabIndex = 4;
+            labelEBSOPathInput.Text = "Path :";
+            // 
+            // countEBSOIn_worklabel
+            // 
+            countEBSOIn_worklabel.AutoSize = true;
+            countEBSOIn_worklabel.Font = new Font("Segoe UI", 20.25F, FontStyle.Regular, GraphicsUnit.Point, 0);
+            countEBSOIn_worklabel.ForeColor = Color.FromArgb(47, 47, 47);
+            countEBSOIn_worklabel.Location = new Point(424, 17);
+            countEBSOIn_worklabel.Name = "countEBSOIn_worklabel";
+            countEBSOIn_worklabel.Size = new Size(89, 37);
+            countEBSOIn_worklabel.TabIndex = 3;
+            countEBSOIn_worklabel.Text = "Count";
+            // 
+            // labelEBSOPathInWork
+            // 
+            labelEBSOPathInWork.AutoSize = true;
+            labelEBSOPathInWork.Location = new Point(37, 39);
+            labelEBSOPathInWork.Name = "labelEBSOPathInWork";
+            labelEBSOPathInWork.Size = new Size(37, 15);
+            labelEBSOPathInWork.TabIndex = 2;
+            labelEBSOPathInWork.Text = "Path :";
+            // 
+            // panel3
+            // 
+            panel3.BackColor = Color.White;
+            panel3.Controls.Add(labelStatusInworkEBSO);
+            panel3.Controls.Add(countEBSOIn_worklabel);
+            panel3.Controls.Add(label4);
+            panel3.Controls.Add(labelEBSOPathInWork);
+            panel3.Location = new Point(65, 310);
+            panel3.Name = "panel3";
+            panel3.Size = new Size(539, 97);
+            panel3.TabIndex = 6;
+            // 
+            // labelStatusInworkEBSO
+            // 
+            labelStatusInworkEBSO.AutoSize = true;
+            labelStatusInworkEBSO.Location = new Point(37, 61);
+            labelStatusInworkEBSO.Name = "labelStatusInworkEBSO";
+            labelStatusInworkEBSO.Size = new Size(53, 15);
+            labelStatusInworkEBSO.TabIndex = 10;
+            labelStatusInworkEBSO.Text = "STATUS :";
+            // 
+            // label4
+            // 
+            label4.AutoSize = true;
+            label4.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            label4.Location = new Point(37, 11);
+            label4.Name = "label4";
+            label4.Size = new Size(158, 19);
+            label4.TabIndex = 8;
+            label4.Text = "EBSO : In_work/Others";
+            // 
+            // panel4
+            // 
+            panel4.BackColor = Color.White;
+            panel4.Controls.Add(labelStatusInputEBSO);
+            panel4.Controls.Add(label6);
+            panel4.Controls.Add(countEBSOinputlabel);
+            panel4.Controls.Add(labelEBSOPathInput);
+            panel4.Location = new Point(65, 416);
+            panel4.Name = "panel4";
+            panel4.Size = new Size(539, 97);
+            panel4.TabIndex = 7;
+            // 
+            // labelStatusInputEBSO
+            // 
+            labelStatusInputEBSO.AutoSize = true;
+            labelStatusInputEBSO.Location = new Point(37, 67);
+            labelStatusInputEBSO.Name = "labelStatusInputEBSO";
+            labelStatusInputEBSO.Size = new Size(53, 15);
+            labelStatusInputEBSO.TabIndex = 10;
+            labelStatusInputEBSO.Text = "STATUS :";
+            // 
+            // label6
+            // 
+            label6.AutoSize = true;
+            label6.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            label6.Location = new Point(37, 11);
+            label6.Name = "label6";
+            label6.Size = new Size(90, 19);
+            label6.TabIndex = 8;
+            label6.Text = "EBSO : Input";
+            // 
+            // panel5
+            // 
+            panel5.BackColor = Color.White;
+            panel5.Controls.Add(labelStatusErrorEBSO);
+            panel5.Controls.Add(countEBSOerrorlabel);
+            panel5.Controls.Add(label8);
+            panel5.Controls.Add(labelEBSOPathError);
+            panel5.Location = new Point(65, 519);
+            panel5.Name = "panel5";
+            panel5.Size = new Size(539, 96);
+            panel5.TabIndex = 8;
+            // 
+            // labelStatusErrorEBSO
+            // 
+            labelStatusErrorEBSO.AutoSize = true;
+            labelStatusErrorEBSO.Location = new Point(37, 60);
+            labelStatusErrorEBSO.Name = "labelStatusErrorEBSO";
+            labelStatusErrorEBSO.Size = new Size(53, 15);
+            labelStatusErrorEBSO.TabIndex = 10;
+            labelStatusErrorEBSO.Text = "STATUS :";
+            // 
+            // label8
+            // 
+            label8.AutoSize = true;
+            label8.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            label8.Location = new Point(37, 11);
+            label8.Name = "label8";
+            label8.Size = new Size(90, 19);
+            label8.TabIndex = 8;
+            label8.Text = "EBSO : Error";
+            // 
+            // panel2
+            // 
+            panel2.BackColor = Color.White;
+            panel2.Controls.Add(labelStatusErrorEBSA);
+            panel2.Controls.Add(countEBSAerrorlabel);
+            panel2.Controls.Add(label10);
+            panel2.Controls.Add(labelEBSAPathError);
+            panel2.Location = new Point(712, 519);
+            panel2.Name = "panel2";
+            panel2.Size = new Size(539, 96);
+            panel2.TabIndex = 12;
+            // 
+            // labelStatusErrorEBSA
+            // 
+            labelStatusErrorEBSA.AutoSize = true;
+            labelStatusErrorEBSA.Location = new Point(37, 60);
+            labelStatusErrorEBSA.Name = "labelStatusErrorEBSA";
+            labelStatusErrorEBSA.Size = new Size(53, 15);
+            labelStatusErrorEBSA.TabIndex = 11;
+            labelStatusErrorEBSA.Text = "STATUS :";
+            // 
+            // countEBSAerrorlabel
+            // 
+            countEBSAerrorlabel.AutoSize = true;
+            countEBSAerrorlabel.Font = new Font("Segoe UI", 20.25F, FontStyle.Regular, GraphicsUnit.Point, 0);
+            countEBSAerrorlabel.ForeColor = Color.FromArgb(47, 47, 47);
+            countEBSAerrorlabel.Location = new Point(425, 11);
+            countEBSAerrorlabel.Name = "countEBSAerrorlabel";
+            countEBSAerrorlabel.Size = new Size(89, 37);
+            countEBSAerrorlabel.TabIndex = 7;
+            countEBSAerrorlabel.Text = "Count";
+            // 
+            // label10
+            // 
+            label10.AutoSize = true;
+            label10.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            label10.Location = new Point(37, 11);
+            label10.Name = "label10";
+            label10.Size = new Size(89, 19);
+            label10.TabIndex = 8;
+            label10.Text = "EBSA : Error";
+            // 
+            // labelEBSAPathError
+            // 
+            labelEBSAPathError.AutoSize = true;
+            labelEBSAPathError.Location = new Point(37, 38);
+            labelEBSAPathError.Name = "labelEBSAPathError";
+            labelEBSAPathError.Size = new Size(40, 15);
+            labelEBSAPathError.TabIndex = 6;
+            labelEBSAPathError.Text = "Path : ";
+            // 
+            // panel6
+            // 
+            panel6.BackColor = Color.White;
+            panel6.Controls.Add(labelStatusInputEBSA);
+            panel6.Controls.Add(label12);
+            panel6.Controls.Add(countEBSAinputlabel);
+            panel6.Controls.Add(labelEBSAPathInput);
+            panel6.Location = new Point(712, 416);
+            panel6.Name = "panel6";
+            panel6.Size = new Size(539, 97);
+            panel6.TabIndex = 11;
+            // 
+            // labelStatusInputEBSA
+            // 
+            labelStatusInputEBSA.AutoSize = true;
+            labelStatusInputEBSA.Location = new Point(37, 67);
+            labelStatusInputEBSA.Name = "labelStatusInputEBSA";
+            labelStatusInputEBSA.Size = new Size(53, 15);
+            labelStatusInputEBSA.TabIndex = 11;
+            labelStatusInputEBSA.Text = "STATUS :";
+            // 
+            // label12
+            // 
+            label12.AutoSize = true;
+            label12.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            label12.Location = new Point(37, 11);
+            label12.Name = "label12";
+            label12.Size = new Size(89, 19);
+            label12.TabIndex = 8;
+            label12.Text = "EBSA : Input";
+            // 
+            // countEBSAinputlabel
+            // 
+            countEBSAinputlabel.AutoSize = true;
+            countEBSAinputlabel.Font = new Font("Segoe UI", 20.25F, FontStyle.Regular, GraphicsUnit.Point, 0);
+            countEBSAinputlabel.ForeColor = Color.FromArgb(47, 47, 47);
+            countEBSAinputlabel.Location = new Point(425, 24);
+            countEBSAinputlabel.Name = "countEBSAinputlabel";
+            countEBSAinputlabel.Size = new Size(89, 37);
+            countEBSAinputlabel.TabIndex = 5;
+            countEBSAinputlabel.Text = "Count";
+            // 
+            // labelEBSAPathInput
+            // 
+            labelEBSAPathInput.AutoSize = true;
+            labelEBSAPathInput.Location = new Point(37, 42);
+            labelEBSAPathInput.Name = "labelEBSAPathInput";
+            labelEBSAPathInput.Size = new Size(37, 15);
+            labelEBSAPathInput.TabIndex = 4;
+            labelEBSAPathInput.Text = "Path :";
+            // 
+            // panel7
+            // 
+            panel7.BackColor = Color.White;
+            panel7.Controls.Add(labelStatusInworkEBSA);
+            panel7.Controls.Add(countEBSAIn_worklabel);
+            panel7.Controls.Add(label16);
+            panel7.Controls.Add(labelEBSAPathInWork);
+            panel7.Location = new Point(712, 310);
+            panel7.Name = "panel7";
+            panel7.Size = new Size(539, 97);
+            panel7.TabIndex = 10;
+            // 
+            // labelStatusInworkEBSA
+            // 
+            labelStatusInworkEBSA.AutoSize = true;
+            labelStatusInworkEBSA.Location = new Point(37, 61);
+            labelStatusInworkEBSA.Name = "labelStatusInworkEBSA";
+            labelStatusInworkEBSA.Size = new Size(53, 15);
+            labelStatusInworkEBSA.TabIndex = 11;
+            labelStatusInworkEBSA.Text = "STATUS :";
+            // 
+            // countEBSAIn_worklabel
+            // 
+            countEBSAIn_worklabel.AutoSize = true;
+            countEBSAIn_worklabel.Font = new Font("Segoe UI", 20.25F, FontStyle.Regular, GraphicsUnit.Point, 0);
+            countEBSAIn_worklabel.ForeColor = Color.FromArgb(47, 47, 47);
+            countEBSAIn_worklabel.Location = new Point(425, 21);
+            countEBSAIn_worklabel.Name = "countEBSAIn_worklabel";
+            countEBSAIn_worklabel.Size = new Size(89, 37);
+            countEBSAIn_worklabel.TabIndex = 3;
+            countEBSAIn_worklabel.Text = "Count";
+            // 
+            // label16
+            // 
+            label16.AutoSize = true;
+            label16.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            label16.Location = new Point(37, 11);
+            label16.Name = "label16";
+            label16.Size = new Size(157, 19);
+            label16.TabIndex = 8;
+            label16.Text = "EBSA : In_work/Others";
+            // 
+            // labelEBSAPathInWork
+            // 
+            labelEBSAPathInWork.AutoSize = true;
+            labelEBSAPathInWork.Location = new Point(37, 39);
+            labelEBSAPathInWork.Name = "labelEBSAPathInWork";
+            labelEBSAPathInWork.Size = new Size(40, 15);
+            labelEBSAPathInWork.TabIndex = 2;
+            labelEBSAPathInWork.Text = "Path : ";
+            // 
+            // label18
+            // 
+            label18.AutoSize = true;
+            label18.Font = new Font("Segoe UI", 40F, FontStyle.Bold);
+            label18.ForeColor = Color.White;
+            label18.Location = new Point(49, 19);
+            label18.Name = "label18";
+            label18.Size = new Size(596, 72);
+            label18.TabIndex = 13;
+            label18.Text = "Monitoring WT Server";
+            // 
+            // RefreshBtn
+            // 
+            RefreshBtn.BackColor = Color.FromArgb(64, 64, 64);
+            RefreshBtn.FlatAppearance.BorderSize = 0;
+            RefreshBtn.FlatStyle = FlatStyle.Flat;
+            RefreshBtn.Image = Properties.Resources.RefreshIconWhite;
+            RefreshBtn.Location = new Point(65, 105);
+            RefreshBtn.Name = "RefreshBtn";
+            RefreshBtn.Size = new Size(159, 88);
+            RefreshBtn.TabIndex = 14;
+            RefreshBtn.UseVisualStyleBackColor = false;
+            RefreshBtn.Click += RefreshBtn_Click;
+            // 
+            // panelEBSOCrontab
+            // 
+            panelEBSOCrontab.BackColor = Color.White;
+            panelEBSOCrontab.Controls.Add(_badgeEBSO);
+            panelEBSOCrontab.Controls.Add(buttonCrontabO);
+            panelEBSOCrontab.Controls.Add(label5);
+            panelEBSOCrontab.Location = new Point(65, 660);
+            panelEBSOCrontab.Name = "panelEBSOCrontab";
+            panelEBSOCrontab.Size = new Size(466, 81);
+            panelEBSOCrontab.TabIndex = 15;
+            // 
+            // _badgeEBSO
+            // 
+            _badgeEBSO.AutoSize = true;
+            _badgeEBSO.Location = new Point(37, 49);
+            _badgeEBSO.Name = "_badgeEBSO";
+            _badgeEBSO.Size = new Size(53, 15);
+            _badgeEBSO.TabIndex = 16;
+            _badgeEBSO.Text = "STATUS :";
+            // 
+            // buttonCrontabO
+            // 
+            buttonCrontabO.BackColor = Color.Transparent;
+            buttonCrontabO.Dock = DockStyle.Right;
+            buttonCrontabO.FlatAppearance.BorderSize = 0;
+            buttonCrontabO.FlatStyle = FlatStyle.Flat;
+            buttonCrontabO.Image = Properties.Resources.Search;
+            buttonCrontabO.Location = new Point(370, 0);
+            buttonCrontabO.Name = "buttonCrontabO";
+            buttonCrontabO.Size = new Size(96, 81);
+            buttonCrontabO.TabIndex = 15;
+            buttonCrontabO.UseVisualStyleBackColor = false;
+            buttonCrontabO.Click += buttonCrontabO_Click;
+            // 
+            // label5
+            // 
+            label5.AutoSize = true;
+            label5.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            label5.Location = new Point(37, 13);
+            label5.Name = "label5";
+            label5.Size = new Size(110, 19);
+            label5.TabIndex = 8;
+            label5.Text = "EBSO : Crontab";
+            // 
+            // panelEBSACrontab
+            // 
+            panelEBSACrontab.BackColor = Color.White;
+            panelEBSACrontab.Controls.Add(_badgeEBSA);
+            panelEBSACrontab.Controls.Add(buttonCrontabA);
+            panelEBSACrontab.Controls.Add(label7);
+            panelEBSACrontab.Location = new Point(712, 660);
+            panelEBSACrontab.Name = "panelEBSACrontab";
+            panelEBSACrontab.Size = new Size(466, 81);
+            panelEBSACrontab.TabIndex = 16;
+            // 
+            // _badgeEBSA
+            // 
+            _badgeEBSA.AutoSize = true;
+            _badgeEBSA.Location = new Point(26, 49);
+            _badgeEBSA.Name = "_badgeEBSA";
+            _badgeEBSA.Size = new Size(53, 15);
+            _badgeEBSA.TabIndex = 17;
+            _badgeEBSA.Text = "STATUS :";
+            // 
+            // buttonCrontabA
+            // 
+            buttonCrontabA.BackColor = Color.Transparent;
+            buttonCrontabA.Dock = DockStyle.Right;
+            buttonCrontabA.FlatAppearance.BorderSize = 0;
+            buttonCrontabA.FlatStyle = FlatStyle.Flat;
+            buttonCrontabA.Image = Properties.Resources.Search;
+            buttonCrontabA.Location = new Point(370, 0);
+            buttonCrontabA.Name = "buttonCrontabA";
+            buttonCrontabA.Size = new Size(96, 81);
+            buttonCrontabA.TabIndex = 16;
+            buttonCrontabA.UseVisualStyleBackColor = false;
+            buttonCrontabA.Click += buttonCrontabA_Click;
+            // 
+            // label7
+            // 
+            label7.AutoSize = true;
+            label7.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            label7.Location = new Point(26, 13);
+            label7.Name = "label7";
+            label7.Size = new Size(109, 19);
+            label7.TabIndex = 8;
+            label7.Text = "EBSA : Crontab";
+            // 
+            // panelEBSOXe1Crontab
+            // 
+            panelEBSOXe1Crontab.BackColor = Color.White;
+            panelEBSOXe1Crontab.Controls.Add(_badgeEBSOXe1);
+            panelEBSOXe1Crontab.Controls.Add(buttonCrontabOXe1);
+            panelEBSOXe1Crontab.Controls.Add(label1);
+            panelEBSOXe1Crontab.Location = new Point(65, 747);
+            panelEBSOXe1Crontab.Name = "panelEBSOXe1Crontab";
+            panelEBSOXe1Crontab.Size = new Size(466, 65);
+            panelEBSOXe1Crontab.TabIndex = 17;
+            // 
+            // _badgeEBSOXe1
+            // 
+            _badgeEBSOXe1.AutoSize = true;
+            _badgeEBSOXe1.Location = new Point(37, 40);
+            _badgeEBSOXe1.Name = "_badgeEBSOXe1";
+            _badgeEBSOXe1.Size = new Size(53, 15);
+            _badgeEBSOXe1.TabIndex = 16;
+            _badgeEBSOXe1.Text = "STATUS :";
+            // 
+            // buttonCrontabOXe1
+            // 
+            buttonCrontabOXe1.BackColor = Color.Transparent;
+            buttonCrontabOXe1.Dock = DockStyle.Right;
+            buttonCrontabOXe1.FlatAppearance.BorderSize = 0;
+            buttonCrontabOXe1.FlatStyle = FlatStyle.Flat;
+            buttonCrontabOXe1.Image = Properties.Resources.Search;
+            buttonCrontabOXe1.Location = new Point(370, 0);
+            buttonCrontabOXe1.Name = "buttonCrontabOXe1";
+            buttonCrontabOXe1.Size = new Size(96, 65);
+            buttonCrontabOXe1.TabIndex = 15;
+            buttonCrontabOXe1.UseVisualStyleBackColor = false;
+            buttonCrontabOXe1.Click += buttonCrontabOXe1_Click;
+            // 
+            // label1
+            // 
+            label1.AutoSize = true;
+            label1.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            label1.Location = new Point(37, 12);
+            label1.Name = "label1";
+            label1.Size = new Size(135, 19);
+            label1.TabIndex = 8;
+            label1.Text = "EBSOXe1 : Crontab";
+            // 
+            // panelEBSOXe2Crontab
+            // 
+            panelEBSOXe2Crontab.BackColor = Color.White;
+            panelEBSOXe2Crontab.Controls.Add(_badgeEBSOXe2);
+            panelEBSOXe2Crontab.Controls.Add(buttonCrontabOXe2);
+            panelEBSOXe2Crontab.Controls.Add(label3);
+            panelEBSOXe2Crontab.Location = new Point(65, 822);
+            panelEBSOXe2Crontab.Name = "panelEBSOXe2Crontab";
+            panelEBSOXe2Crontab.Size = new Size(466, 65);
+            panelEBSOXe2Crontab.TabIndex = 18;
+            // 
+            // _badgeEBSOXe2
+            // 
+            _badgeEBSOXe2.AutoSize = true;
+            _badgeEBSOXe2.Location = new Point(37, 40);
+            _badgeEBSOXe2.Name = "_badgeEBSOXe2";
+            _badgeEBSOXe2.Size = new Size(53, 15);
+            _badgeEBSOXe2.TabIndex = 16;
+            _badgeEBSOXe2.Text = "STATUS :";
+            // 
+            // buttonCrontabOXe2
+            // 
+            buttonCrontabOXe2.BackColor = Color.Transparent;
+            buttonCrontabOXe2.Dock = DockStyle.Right;
+            buttonCrontabOXe2.FlatAppearance.BorderSize = 0;
+            buttonCrontabOXe2.FlatStyle = FlatStyle.Flat;
+            buttonCrontabOXe2.Image = Properties.Resources.Search;
+            buttonCrontabOXe2.Location = new Point(370, 0);
+            buttonCrontabOXe2.Name = "buttonCrontabOXe2";
+            buttonCrontabOXe2.Size = new Size(96, 65);
+            buttonCrontabOXe2.TabIndex = 15;
+            buttonCrontabOXe2.UseVisualStyleBackColor = false;
+            buttonCrontabOXe2.Click += buttonCrontabOXe2_Click;
+            // 
+            // label3
+            // 
+            label3.AutoSize = true;
+            label3.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            label3.Location = new Point(37, 10);
+            label3.Name = "label3";
+            label3.Size = new Size(135, 19);
+            label3.TabIndex = 8;
+            label3.Text = "EBSOXe2 : Crontab";
+            // 
+            // buttonProcessEBSO
+            // 
+            buttonProcessEBSO.BackColor = Color.FromArgb(28, 169, 201);
+            buttonProcessEBSO.FlatAppearance.BorderSize = 0;
+            buttonProcessEBSO.FlatStyle = FlatStyle.Flat;
+            buttonProcessEBSO.Font = new Font("Segoe UI", 10F);
+            buttonProcessEBSO.ForeColor = Color.White;
+            buttonProcessEBSO.Image = Properties.Resources.TopProcess;
+            buttonProcessEBSO.Location = new Point(1300, 321);
+            buttonProcessEBSO.Name = "buttonProcessEBSO";
+            buttonProcessEBSO.Size = new Size(124, 112);
+            buttonProcessEBSO.TabIndex = 19;
+            buttonProcessEBSO.Text = "Process in EBSO";
+            buttonProcessEBSO.TextAlign = ContentAlignment.BottomCenter;
+            buttonProcessEBSO.UseVisualStyleBackColor = false;
+            buttonProcessEBSO.Click += buttonProcessEBSO_Click;
+            // 
+            // buttonProcessEBSA
+            // 
+            buttonProcessEBSA.BackColor = Color.FromArgb(139, 195, 74);
+            buttonProcessEBSA.FlatAppearance.BorderSize = 0;
+            buttonProcessEBSA.FlatStyle = FlatStyle.Flat;
+            buttonProcessEBSA.Font = new Font("Segoe UI", 10F);
+            buttonProcessEBSA.ForeColor = Color.White;
+            buttonProcessEBSA.Image = Properties.Resources.TopProcess;
+            buttonProcessEBSA.Location = new Point(1300, 483);
+            buttonProcessEBSA.Name = "buttonProcessEBSA";
+            buttonProcessEBSA.Size = new Size(124, 104);
+            buttonProcessEBSA.TabIndex = 20;
+            buttonProcessEBSA.Text = "Process in EBSA";
+            buttonProcessEBSA.TextAlign = ContentAlignment.BottomCenter;
+            buttonProcessEBSA.UseVisualStyleBackColor = false;
+            buttonProcessEBSA.Click += buttonProcessEBSA_Click;
+            // 
+            // buttonCheckTP
+            // 
+            buttonCheckTP.BackColor = Color.FromArgb(64, 64, 64);
+            buttonCheckTP.FlatAppearance.BorderSize = 0;
+            buttonCheckTP.FlatStyle = FlatStyle.Flat;
+            buttonCheckTP.Font = new Font("Segoe UI", 15F);
+            buttonCheckTP.ForeColor = Color.White;
+            buttonCheckTP.Location = new Point(251, 105);
+            buttonCheckTP.Name = "buttonCheckTP";
+            buttonCheckTP.Size = new Size(159, 88);
+            buttonCheckTP.TabIndex = 21;
+            buttonCheckTP.Text = "Check Test Program";
+            buttonCheckTP.UseVisualStyleBackColor = false;
+            buttonCheckTP.Click += buttonCheckTP_Click;
+            // 
+            // panelEBSODisk
+            // 
+            panelEBSODisk.BackColor = Color.White;
+            panelEBSODisk.BackgroundImage = Properties.Resources.Disk;
+            panelEBSODisk.BackgroundImageLayout = ImageLayout.None;
+            panelEBSODisk.Controls.Add(progressBarDiskEBSO);
+            panelEBSODisk.Controls.Add(labelEBSOTotalDisk);
+            panelEBSODisk.Controls.Add(labelPercentageUsageEBSO);
+            panelEBSODisk.Controls.Add(labelEBSODisk);
+            panelEBSODisk.Controls.Add(labelEBSOMPoint);
+            panelEBSODisk.Location = new Point(651, 105);
+            panelEBSODisk.Name = "panelEBSODisk";
+            panelEBSODisk.Size = new Size(371, 189);
+            panelEBSODisk.TabIndex = 22;
+            // 
+            // labelEBSOTotalDisk
+            // 
+            labelEBSOTotalDisk.AutoSize = true;
+            labelEBSOTotalDisk.Location = new Point(21, 119);
+            labelEBSOTotalDisk.Name = "labelEBSOTotalDisk";
+            labelEBSOTotalDisk.Size = new Size(68, 15);
+            labelEBSOTotalDisk.TabIndex = 11;
+            labelEBSOTotalDisk.Text = "Total Usage";
+            // 
+            // labelPercentageUsageEBSO
+            // 
+            labelPercentageUsageEBSO.AutoSize = true;
+            labelPercentageUsageEBSO.Font = new Font("Segoe UI", 20.25F, FontStyle.Regular, GraphicsUnit.Point, 0);
+            labelPercentageUsageEBSO.ForeColor = Color.FromArgb(47, 47, 47);
+            labelPercentageUsageEBSO.Location = new Point(224, 81);
+            labelPercentageUsageEBSO.Name = "labelPercentageUsageEBSO";
+            labelPercentageUsageEBSO.Size = new Size(63, 37);
+            labelPercentageUsageEBSO.TabIndex = 3;
+            labelPercentageUsageEBSO.Text = "xx%";
+            // 
+            // labelEBSODisk
+            // 
+            labelEBSODisk.AutoSize = true;
+            labelEBSODisk.Font = new Font("Segoe UI", 18F, FontStyle.Bold, GraphicsUnit.Point, 0);
+            labelEBSODisk.Location = new Point(115, 31);
+            labelEBSODisk.Name = "labelEBSODisk";
+            labelEBSODisk.Size = new Size(205, 32);
+            labelEBSODisk.TabIndex = 8;
+            labelEBSODisk.Text = "EBSO Disk Usage";
+            // 
+            // labelEBSOMPoint
+            // 
+            labelEBSOMPoint.AutoSize = true;
+            labelEBSOMPoint.Location = new Point(21, 99);
+            labelEBSOMPoint.Name = "labelEBSOMPoint";
+            labelEBSOMPoint.Size = new Size(87, 15);
+            labelEBSOMPoint.TabIndex = 2;
+            labelEBSOMPoint.Text = "Mounted Point";
+            // 
+            // progressBarDiskEBSO
+            // 
+            progressBarDiskEBSO.Location = new Point(21, 149);
+            progressBarDiskEBSO.Name = "progressBarDiskEBSO";
+            progressBarDiskEBSO.Size = new Size(317, 23);
+            progressBarDiskEBSO.TabIndex = 12;
+            // 
+            // panelEBSADisk
+            // 
+            panelEBSADisk.BackColor = Color.White;
+            panelEBSADisk.BackgroundImage = Properties.Resources.Disk;
+            panelEBSADisk.BackgroundImageLayout = ImageLayout.None;
+            panelEBSADisk.Controls.Add(progressBarDiskEBSA);
+            panelEBSADisk.Controls.Add(labelEBSATotalDisk);
+            panelEBSADisk.Controls.Add(labelPercentageUsageEBSA);
+            panelEBSADisk.Controls.Add(label13);
+            panelEBSADisk.Controls.Add(labelEBSAMPoint);
+            panelEBSADisk.Location = new Point(1053, 105);
+            panelEBSADisk.Name = "panelEBSADisk";
+            panelEBSADisk.Size = new Size(371, 189);
+            panelEBSADisk.TabIndex = 23;
+            // 
+            // progressBarDiskEBSA
+            // 
+            progressBarDiskEBSA.Location = new Point(33, 149);
+            progressBarDiskEBSA.Name = "progressBarDiskEBSA";
+            progressBarDiskEBSA.Size = new Size(302, 23);
+            progressBarDiskEBSA.TabIndex = 12;
+            // 
+            // labelEBSATotalDisk
+            // 
+            labelEBSATotalDisk.AutoSize = true;
+            labelEBSATotalDisk.Location = new Point(21, 119);
+            labelEBSATotalDisk.Name = "labelEBSATotalDisk";
+            labelEBSATotalDisk.Size = new Size(68, 15);
+            labelEBSATotalDisk.TabIndex = 11;
+            labelEBSATotalDisk.Text = "Total Usage";
+            // 
+            // labelPercentageUsageEBSA
+            // 
+            labelPercentageUsageEBSA.AutoSize = true;
+            labelPercentageUsageEBSA.Font = new Font("Segoe UI", 20.25F, FontStyle.Regular, GraphicsUnit.Point, 0);
+            labelPercentageUsageEBSA.ForeColor = Color.FromArgb(47, 47, 47);
+            labelPercentageUsageEBSA.Location = new Point(216, 81);
+            labelPercentageUsageEBSA.Name = "labelPercentageUsageEBSA";
+            labelPercentageUsageEBSA.Size = new Size(63, 37);
+            labelPercentageUsageEBSA.TabIndex = 3;
+            labelPercentageUsageEBSA.Text = "xx%";
+            // 
+            // label13
+            // 
+            label13.AutoSize = true;
+            label13.Font = new Font("Segoe UI", 18F, FontStyle.Bold, GraphicsUnit.Point, 0);
+            label13.Location = new Point(102, 31);
+            label13.Name = "label13";
+            label13.Size = new Size(204, 32);
+            label13.TabIndex = 8;
+            label13.Text = "EBSA Disk Usage";
+            // 
+            // labelEBSAMPoint
+            // 
+            labelEBSAMPoint.AutoSize = true;
+            labelEBSAMPoint.Location = new Point(21, 99);
+            labelEBSAMPoint.Name = "labelEBSAMPoint";
+            labelEBSAMPoint.Size = new Size(87, 15);
+            labelEBSAMPoint.TabIndex = 2;
+            labelEBSAMPoint.Text = "Mounted Point";
+            // 
+            // CheckStatusController
+            // 
+            AutoScaleDimensions = new SizeF(7F, 15F);
+            AutoScaleMode = AutoScaleMode.Font;
+            BackColor = Color.FromArgb(47, 47, 47);
+            Controls.Add(panelEBSADisk);
+            Controls.Add(panelEBSODisk);
+            Controls.Add(buttonCheckTP);
+            Controls.Add(buttonProcessEBSA);
+            Controls.Add(buttonProcessEBSO);
+            Controls.Add(panelEBSOXe2Crontab);
+            Controls.Add(panelEBSOXe1Crontab);
+            Controls.Add(panelEBSACrontab);
+            Controls.Add(panelEBSOCrontab);
+            Controls.Add(RefreshBtn);
+            Controls.Add(label18);
+            Controls.Add(panel2);
+            Controls.Add(panel6);
+            Controls.Add(panel7);
+            Controls.Add(panel5);
+            Controls.Add(panel4);
+            Controls.Add(panel3);
+            Controls.Add(panel1);
+            Name = "CheckStatusController";
+            Size = new Size(1450, 970);
+            panel1.ResumeLayout(false);
+            panel1.PerformLayout();
+            panel3.ResumeLayout(false);
+            panel3.PerformLayout();
+            panel4.ResumeLayout(false);
+            panel4.PerformLayout();
+            panel5.ResumeLayout(false);
+            panel5.PerformLayout();
+            panel2.ResumeLayout(false);
+            panel2.PerformLayout();
+            panel6.ResumeLayout(false);
+            panel6.PerformLayout();
+            panel7.ResumeLayout(false);
+            panel7.PerformLayout();
+            panelEBSOCrontab.ResumeLayout(false);
+            panelEBSOCrontab.PerformLayout();
+            panelEBSACrontab.ResumeLayout(false);
+            panelEBSACrontab.PerformLayout();
+            panelEBSOXe1Crontab.ResumeLayout(false);
+            panelEBSOXe1Crontab.PerformLayout();
+            panelEBSOXe2Crontab.ResumeLayout(false);
+            panelEBSOXe2Crontab.PerformLayout();
+            panelEBSODisk.ResumeLayout(false);
+            panelEBSODisk.PerformLayout();
+            panelEBSADisk.ResumeLayout(false);
+            panelEBSADisk.PerformLayout();
+            ResumeLayout(false);
+            PerformLayout();
+        }
+
+        #endregion
+
+        private Panel panel1;
+        private Label countEBSOTranferPoollabel;
+        private Label labelEBSOPathPool;
+        private Label countEBSOerrorlabel;
+        private Label labelEBSOPathError;
+        private Label countEBSOinputlabel;
+        private Label labelEBSOPathInput;
+        private Label countEBSOIn_worklabel;
+        private Label labelEBSOPathInWork;
+        private Label label2;
+        private Panel panel3;
+        private Label label4;
+        private Panel panel4;
+        private Label label6;
+        private Panel panel5;
+        private Label label8;
+        private Panel panel2;
+        private Label countEBSAerrorlabel;
+        private Label label10;
+        private Label labelEBSAPathError;
+        private Panel panel6;
+        private Label label12;
+        private Label countEBSAinputlabel;
+        private Label labelEBSAPathInput;
+        private Panel panel7;
+        private Label countEBSAIn_worklabel;
+        private Label label16;
+        private Label labelEBSAPathInWork;
+        private Label label18;
+        private Button RefreshBtn;
+        private Label labelPoolStatusEBSO;
+        private Label labelStatusInworkEBSO;
+        private Label labelStatusInputEBSO;
+        private Label labelStatusErrorEBSO;
+        private Label labelStatusErrorEBSA;
+        private Label labelStatusInputEBSA;
+        private Label labelStatusInworkEBSA;
+        private Panel panelEBSOCrontab;
+        private Label label5;
+        private Panel panelEBSACrontab;
+        private Label label7;
+        private Button buttonCrontabO;
+        private Button buttonCrontabA;
+        private Panel panelEBSOXe1Crontab;
+        private Button buttonCrontabOXe1;
+        private Label label1;
+        private Panel panelEBSOXe2Crontab;
+        private Button buttonCrontabOXe2;
+        private Label label3;
+        private Button buttonProcessEBSO;
+        private Button buttonProcessEBSA;
+        private Label _badgeEBSO;
+        private Label _badgeEBSA;
+        private Label _badgeEBSOXe1;
+        private Label _badgeEBSOXe2;
+        private Button buttonCheckTP;
+        private Panel panelEBSODisk;
+        private Label labelEBSOTotalDisk;
+        private Label labelPercentageUsageEBSO;
+        private Label labelEBSODisk;
+        private Label labelEBSOMPoint;
+        private ProgressBar progressBarDiskEBSO;
+        private Panel panelEBSADisk;
+        private ProgressBar progressBarDiskEBSA;
+        private Label labelEBSATotalDisk;
+        private Label labelPercentageUsageEBSA;
+        private Label label13;
+        private Label labelEBSAMPoint;
     }
-
-    // ---------------- Usage text ----------------
-    labelPercent.Text = percentValue >= 0
-        ? $"Usage: {percentValue}%  ({filesystem ?? "unknown"})"
-        : $"Usage: {usePercent ?? "-"}";
-
-    // ---------------- Threshold colors ----------------
-    Color usageColor;
-
-    if (percentValue < 0)
-    {
-        usageColor = Flat47Style.TextMuted;
-    }
-    else if (percentValue >= 90)
-    {
-        usageColor = Color.IndianRed;   // 🔴 Critical
-    }
-    else if (percentValue >= 80)
-    {
-        usageColor = Color.Khaki;       // 🟡 Warning
-    }
-    else
-    {
-        usageColor = Color.LimeGreen;   // ✅ Healthy
-    }
-
-    labelPercent.ForeColor = usageColor;
-
-    // ---------------- Optional ProgressBar ----------------
-    if (progressBar != null)
-    {
-        progressBar.Minimum = 0;
-        progressBar.Maximum = 100;
-        progressBar.Value = Math.Max(0, Math.Min(100, percentValue < 0 ? 0 : percentValue));
-
-        progressBar.BackColor = Flat47Style.SurfaceAlt;
-        progressBar.ForeColor = usageColor;
-    }
-
-    // ---------------- Optional: tooltip for quick glance ----------------
-    var tooltipText =
-        $"Filesystem : {filesystem}\n" +
-        $"Mounted on : {mountedOn}\n" +
-        $"Used       : {used}\n" +
-        $"Total      : {size}\n" +
-        $"Usage      : {usePercent}";
-
-    var tip = new ToolTip();
-    tip.SetToolTip(labelPercent, tooltipText);
-    tip.SetToolTip(labelTotal, tooltipText);
 }
