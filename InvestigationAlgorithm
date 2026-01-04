@@ -42,7 +42,8 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
         /// Investigation algorithm that compares STEPP vs EBSO vs EBSA using:
         /// - Step presence (S1/S2/S3)
         /// - Wafer count per step
-        /// - Additional STEPP details: TEST_PROG_REVISON, LAST_REPLY_DATE
+        /// - Additional STEPP details: TEST_PROG_REVISION, LAST_REPLY_DATE
+        /// - Additional EBS details: LATEST_LOADING_TIME
         /// </summary>
         public AlgorithmInvestigate(
             List<StdfGroupedResult> stepp,
@@ -100,6 +101,9 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
 
             // 5) Extra correlation signals (optional, but helpful)
             findings.AddRange(ExtraCorrelationSignals());
+
+            // 6) MES UI mismatch possibility (your comment)
+            findings.AddRange(MesUiMismatchSignal());
 
             return new InvestigationReport(_lot, _currentOper, _basicType, _totalWafers, findings);
         }
@@ -168,7 +172,7 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
                 .Distinct()
                 .ToList();
 
-            // Additional requested detail
+            // Requested detail
             var revisions = _stepp
                 .Select(x => x.TEST_PROG_REVISION ?? "")
                 .Where(s => !string.IsNullOrWhiteSpace(s))
@@ -176,6 +180,7 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
                 .ToList();
 
             var lastReply = MaxDate(_stepp.Select(x => x.LAST_REPLY_DATE));
+            var firstRequest = MinDate(_stepp.Select(x => x.FIRST_REQUEST_DATE));
 
             // wafers by step
             var wafersByStep = _stepp
@@ -184,7 +189,7 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
                 .Select(g => new
                 {
                     Step = g.Key,
-                    Total = g.Sum(x => SafeInt(x.TOTAL_WAFER.ToString()))
+                    Total = g.Sum(x => x.TOTAL_WAFER) // int already
                 })
                 .OrderBy(x => ParseStepNumber(x.Step))
                 .ToList();
@@ -197,6 +202,7 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
                 $"Testers: {testers.Count} ({PreviewList(testers, 3)}){Environment.NewLine}" +
                 $"TestPrograms: {PreviewList(testPrograms, 2)}{Environment.NewLine}" +
                 $"TestProgramRevision: {PreviewList(revisions, 3)}{Environment.NewLine}" +
+                $"FirstRequestDate: {FormatDate(firstRequest)}{Environment.NewLine}" +
                 $"LastReplyDate: {FormatDate(lastReply)}"
             );
 
@@ -232,18 +238,25 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
                 .OrderBy(ParseStepNumber)
                 .ToList();
 
-            var totalWafersByStep = data
+            var wafersByStep = data
                 .Where(x => !string.IsNullOrWhiteSpace(x.STEP))
                 .GroupBy(x => NormalizeStep(x.STEP!))
-                .Select(g => new { Step = g.Key, Total = g.Sum(x => SafeInt(x.WAFER_COUNT.ToString())) })
+                .Select(g => new
+                {
+                    Step = g.Key,
+                    Total = g.Sum(x => x.WAFER_COUNT) // int already
+                })
                 .OrderBy(x => ParseStepNumber(x.Step))
                 .ToList();
+
+            var latestLoading = MaxDate(data.Select(x => x.LATEST_LOADING_TIME));
 
             yield return new Finding(
                 FindingSeverity.Info,
                 $"{systemName} summary",
                 $"Steps: {string.Join(", ", steps)}{Environment.NewLine}" +
-                $"Wafers by step: {string.Join(", ", totalWafersByStep.Select(x => $"{x.Step}={x.Total}"))}");
+                $"Wafers by step: {string.Join(", ", wafersByStep.Select(x => $"{x.Step}={x.Total}"))}{Environment.NewLine}" +
+                $"LatestLoadingTime: {FormatDate(latestLoading)}");
 
             if (expectedSteps.Count > 0)
             {
@@ -301,7 +314,6 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
                             $"Conclusion: data can't process in loader Module of EBSO OR EMA Script can't pick up remaining wafer files from STEPP.");
                     }
                 }
-                // if number of wafer in stepp mitmatch with MES UI . the reason can happend from this lot still testing in the test flor
             }
 
             // EBSO -> EBSA rules
@@ -341,13 +353,13 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
         private IEnumerable<Finding> ExtraCorrelationSignals()
         {
             // Strong signal: STEPP has recent update but EBSO is empty
-            var lastReply = MaxDate(_stepp.Select(x => x.LAST_REPLY_DATE));
-            if (lastReply != null && _stepp.Any() && !_ebso.Any())
+            var steppLastReply = MaxDate(_stepp.Select(x => x.LAST_REPLY_DATE));
+            if (steppLastReply != null && _stepp.Any() && !_ebso.Any())
             {
                 yield return new Finding(
                     FindingSeverity.Critical,
                     "Strong signal: STEPP updated but EBSO empty",
-                    $"STEPP last reply at {FormatDate(lastReply)} but EBSO has no data.{Environment.NewLine}" +
+                    $"STEPP last reply at {FormatDate(steppLastReply)} but EBSO has no data.{Environment.NewLine}" +
                     "Highly suspect loader/EMA pickup issue between STEPP and EBSO.");
             }
 
@@ -358,6 +370,42 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
                     FindingSeverity.Warning,
                     "Signal: EBSO has data but EBSA empty",
                     "EBSO contains data but EBSA has no data. Suspect forwarding/replication/pickup issue from EBSO to EBSA.");
+            }
+
+            // Compare loading times if both exist
+            var ebsoLatest = MaxDate(_ebso.Select(x => x.LATEST_LOADING_TIME));
+            var ebsaLatest = MaxDate(_ebsa.Select(x => x.LATEST_LOADING_TIME));
+            if (ebsoLatest != null && ebsaLatest != null && ebsoLatest > ebsaLatest)
+            {
+                yield return new Finding(
+                    FindingSeverity.Info,
+                    "Loading time comparison",
+                    $"EBSO latest loading time ({FormatDate(ebsoLatest)}) is newer than EBSA ({FormatDate(ebsaLatest)}). " +
+                    "If wafer mismatch exists, EBSA may still be processing.");
+            }
+        }
+
+        // -------------------- MES UI MISMATCH SIGNAL --------------------
+
+        private IEnumerable<Finding> MesUiMismatchSignal()
+        {
+            if (string.IsNullOrWhiteSpace(_totalWafers)) yield break;
+
+            var mesTotal = SafeInt(_totalWafers);
+            if (mesTotal <= 0) yield break;
+
+            // Compare MES UI total with max wafers observed in STEPP (sum of steps) as a quick indicator
+            if (_stepp.Any())
+            {
+                var steppSum = _stepp.Sum(x => x.TOTAL_WAFER);
+                if (steppSum != 0 && steppSum != mesTotal)
+                {
+                    yield return new Finding(
+                        FindingSeverity.Warning,
+                        "MES UI wafer count mismatch (possible normal)",
+                        $"MES UI total wafers={mesTotal}, STEPP total wafers (sum)={steppSum}.{Environment.NewLine}" +
+                        "Possible reason: lot is still testing in the test floor OR partial upload/pickup timing.");
+                }
             }
         }
 
@@ -380,7 +428,7 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
                     .GroupBy(x => NormalizeStep(x.MEASSTP_NAME!))
                     .ToDictionary(
                         g => g.Key,
-                        g => g.Sum(x => SafeInt(x.TOTAL_WAFER.ToString())),
+                        g => g.Sum(x => x.TOTAL_WAFER),
                         StringComparer.OrdinalIgnoreCase);
 
         private static Dictionary<string, int> GetWafersByStepFromEbs(List<MeasurementGroupByStep> ebs)
@@ -388,7 +436,7 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
                   .GroupBy(x => NormalizeStep(x.STEP!))
                   .ToDictionary(
                       g => g.Key,
-                      g => g.Sum(x => SafeInt(x.WAFER_COUNT.ToString())),
+                      g => g.Sum(x => x.WAFER_COUNT),
                       StringComparer.OrdinalIgnoreCase);
 
         // -------------------- GENERAL HELPERS --------------------
@@ -398,9 +446,7 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
 
         private static int ParseStepNumber(string step)
         {
-            // S1 -> 1, S2 -> 2, S10 -> 10, unknown -> 9999
             if (string.IsNullOrWhiteSpace(step)) return 9999;
-
             var m = Regex.Match(step.Trim(), @"(\d+)");
             return m.Success && int.TryParse(m.Groups[1].Value, out var n) ? n : 9999;
         }
@@ -431,6 +477,17 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
             return max;
         }
 
+        private static DateTime? MinDate(IEnumerable<DateTime?> dates)
+        {
+            DateTime? min = null;
+            foreach (var d in dates)
+            {
+                if (d == null) continue;
+                if (min == null || d.Value < min.Value) min = d.Value;
+            }
+            return min;
+        }
+
         private static string FormatDate(DateTime? dt)
             => dt == null ? "-" : dt.Value.ToString("yyyy-MM-dd HH:mm:ss");
 
@@ -444,6 +501,8 @@ namespace BKGEBSInvestigation.InvestigationServicesUserController
     }
 }
 
+// -------------------- YOUR MODELS (AS PROVIDED) --------------------
+
 namespace InvestigationServices.ModelEBSO
 {
     public sealed class MeasurementGroupByStep
@@ -454,9 +513,9 @@ namespace InvestigationServices.ModelEBSO
         public string TEST_TYPE { get; init; } = "";
         public string MEASCAT_NAME { get; init; } = "";
 
-        public DateTime? LATEST_LOADING_TIME { get; init; }  
-        public int TOTAL_MEASUREMENTS { get; init; }         
-        public int WAFER_COUNT { get; init; }                 
+        public DateTime? LATEST_LOADING_TIME { get; init; }
+        public int TOTAL_MEASUREMENTS { get; init; }
+        public int WAFER_COUNT { get; init; }
     }
 }
 
@@ -471,14 +530,8 @@ namespace InvestigationServices.ModelEBSO
         public string LOT_NUMBER { get; init; } = "";
         public string TESTER_NAME { get; init; } = "";
 
-        public DateTime? FIRST_REQUEST_DATE { get; init; }  
-        public DateTime? LAST_REPLY_DATE { get; init; }     
-        public int TOTAL_WAFER { get; init; }                
+        public DateTime? FIRST_REQUEST_DATE { get; init; }
+        public DateTime? LAST_REPLY_DATE { get; init; }
+        public int TOTAL_WAFER { get; init; }
     }
 }
-
-
-
-
-
-
